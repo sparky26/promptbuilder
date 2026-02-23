@@ -1,0 +1,98 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #f5f7ff;
+  background: #0f1220;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+header p {
+  color: #c3caec;
+}
+
+.chat-window {
+  margin-top: 1rem;
+  background: #171b2d;
+  border: 1px solid #2b3356;
+  border-radius: 12px;
+  min-height: 380px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bubble {
+  padding: 0.75rem;
+  border-radius: 10px;
+  max-width: 90%;
+}
+
+.bubble p {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+}
+
+.bubble.assistant {
+  background: #232a44;
+  border: 1px solid #3a4673;
+  align-self: flex-start;
+}
+
+.bubble.user {
+  background: #1f3a3a;
+  border: 1px solid #2f5c5c;
+  align-self: flex-end;
+}
+
+.composer {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+textarea {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #3c4470;
+  background: #121629;
+  color: #f5f7ff;
+  padding: 0.8rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.65rem 1.1rem;
+  background: #6a7cff;
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #ff8e8e;
+}
