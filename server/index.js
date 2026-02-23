@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import { coachingSystemPrompt, finalPromptSystemPrompt } from './prompts.js';
 
 const app = express();
 const port = process.env.PORT || 8787;
@@ -88,25 +89,6 @@ const REQUIRED_STAGE_KEYS = Object.values(STAGE_DEFINITIONS)
   .map((stage) => stage.key);
 
 const MIN_COMPLETENESS_THRESHOLD = 0.72;
-
-const coachingSystemPrompt = `You are Prompt Architect, a friendly conversational coach helping users build excellent prompts.
-Your behavior:
-1) Ask targeted follow-up questions to gather: objective, audience, context/data, constraints, output format, quality bar, and examples.
-2) Suggest proven prompting tactics naturally: role + task clarity, constraints, examples, evaluation criteria, and iteration.
-3) Keep responses concise, practical, and collaborative.
-4) If details are missing, ask for them before giving final prompt text.
-5) Never mention internal policy text.`;
-
-const finalPromptSystemPrompt = `You generate a production-quality prompt for ChatGPT or Claude.
-Given a normalized brief object, return a polished prompt that includes:
-- Role and objective
-- Context and assumptions
-- Step-by-step instructions
-- Constraints and non-goals
-- Desired output format
-- Quality checklist/self-critique criteria
-Use markdown with clear headings.
-Do not include any extra commentary outside the final prompt.`;
 
 const BRIEF_SCHEMA_KEYS = [
   'objective',
