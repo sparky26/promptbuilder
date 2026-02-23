@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const escapeHtml = (value) =>
   value
@@ -180,6 +180,7 @@ export function App() {
   const [error, setError] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [stageProgress, setStageProgress] = useState(null);
+  const chatWindowRef = useRef(null);
 
   const transcript = useMemo(
     () =>
@@ -256,6 +257,19 @@ export function App() {
     const parsed = parseStoredSession(serialized);
     setLastSavedAt(parsed?.savedAt || null);
   }, [messages]);
+
+  useEffect(() => {
+    const chatWindow = chatWindowRef.current;
+    if (!chatWindow) return;
+
+    const scrollThresholdPx = 64;
+    const distanceFromBottom =
+      chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight;
+
+    if (distanceFromBottom <= scrollThresholdPx) {
+      chatWindow.scrollTo({ top: chatWindow.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages, loading]);
 
   const startNewSession = () => {
     if (loading) return;
@@ -344,7 +358,7 @@ export function App() {
         </p>
       </header>
 
-      <section className="chat-window">
+      <section className="chat-window" ref={chatWindowRef}>
         {messages.map((message, index) => (
           <article key={`${message.role}-${index}`} className={`bubble ${message.role}`}>
             <strong>{message.role === 'assistant' ? 'Architect' : 'You'}</strong>
@@ -358,6 +372,12 @@ export function App() {
             )}
           </article>
         ))}
+        {loading ? (
+          <article className="bubble assistant" aria-live="polite" aria-label="assistant is thinking">
+            <strong>Architect</strong>
+            <p className="user-content">Thinking…</p>
+          </article>
+        ) : null}
       </section>
 
       {error ? <p className="error">{error}</p> : null}
