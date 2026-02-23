@@ -2,6 +2,7 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { coachingSystemPrompt, finalPromptSystemPrompt } from './prompts.js';
+import { extractBrief, normalizeHistoryInput } from './brief-extractor.js';
 
 const app = express();
 const port = process.env.PORT || 8787;
@@ -90,214 +91,21 @@ const REQUIRED_STAGE_KEYS = Object.values(STAGE_DEFINITIONS)
 
 const MIN_COMPLETENESS_THRESHOLD = 0.72;
 
-const BRIEF_SCHEMA_KEYS = [
-  'objective',
-  'audience',
-  'context',
-  'constraints',
-  'nonGoals',
-  'outputFormat',
-  'tone',
-  'examples',
-  'acceptanceCriteria'
-];
-
-const BRIEF_FIELD_PATTERNS = {
-  objective: [/\bobjective\b/, /\bgoal\b/, /\bi need\b/, /\bi want\b/, /\btask\b/],
-  audience: [/\baudience\b/, /\bfor\b/, /\btarget\b/, /\breaders?\b/, /\busers?\b/],
-  context: [/\bcontext\b/, /\bbackground\b/, /\bsource\b/, /\bdata\b/, /\binput\b/],
-  constraints: [/\bconstraint\b/, /\bmust\b/, /\bshould\b/, /\blimit\b/, /\bavoid\b/],
-  nonGoals: [/\bnon-goals?\b/, /\bout of scope\b/, /\bdo not\b/, /\bdon't\b/, /\bnot include\b/],
-  outputFormat: [/\boutput\s*format\b/, /\bformat\b/, /\bjson\b/, /\bmarkdown\b/, /\btable\b/],
-  tone: [/\btone\b/, /\bvoice\b/, /\bstyle\b/, /\bformal\b/, /\bcasual\b/],
-  examples: [/\bexample\b/, /\bsample\b/, /\bfew-shot\b/, /\blike this\b/],
-  acceptanceCriteria: [/\bacceptance\s*criteria\b/, /\bsuccess\s*criteria\b/, /\bdefinition of done\b/, /\bquality bar\b/]
-};
-
-function normalizeContent(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function extractUserTurnsFromTranscript(transcript = '') {
-  const lines = String(transcript || '').split(/\r?\n/);
-  const turns = [];
-  let currentRole = null;
-  let buffer = [];
-
-  const flush = () => {
-    if (!currentRole) return;
-    const content = buffer.join('\n').trim();
-    if (content) {
-      turns.push({ role: currentRole, content });
-    }
+function inspectConversationStages(briefExtraction) {
+  const field = (key) => briefExtraction?.fields?.[key] || { value: null, confidence: 0 };
+  const hasHighConfidence = (key, threshold = 0.45) => {
+    const item = field(key);
+    return Boolean(item?.value) && Number(item?.confidence || 0) >= threshold;
   };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    const roleMatch = line.match(/^(user|assistant)\s*:\s*(.*)$/i);
-    if (roleMatch) {
-      flush();
-      currentRole = roleMatch[1].toLowerCase();
-      buffer = [roleMatch[2] || ''];
-    } else if (currentRole) {
-      buffer.push(rawLine);
-    }
-  }
-
-  flush();
-
-  if (!turns.length && transcript.trim()) {
-    return [{ role: 'user', content: transcript.trim() }];
-  }
-
-  return turns;
-}
-
-function splitCandidateStatements(text = '') {
-  return text
-    .split(/\n|[•*-]\s+|\d+\.\s+|;+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function detectField(statement) {
-  const normalized = normalizeContent(statement);
-  const explicitMatch = normalized.match(
-    /^(objective|audience|context|constraints|non-goals?|non goals|output format|tone|examples?|acceptance criteria)\s*:\s*(.+)$/i
-  );
-
-  if (explicitMatch) {
-    const explicitKey = explicitMatch[1].toLowerCase();
-    const explicitMap = {
-      objective: 'objective',
-      audience: 'audience',
-      context: 'context',
-      constraints: 'constraints',
-      'non-goal': 'nonGoals',
-      'non-goals': 'nonGoals',
-      'non goals': 'nonGoals',
-      'output format': 'outputFormat',
-      tone: 'tone',
-      example: 'examples',
-      examples: 'examples',
-      'acceptance criteria': 'acceptanceCriteria'
-    };
-    return {
-      key: explicitMap[explicitKey] || null,
-      value: explicitMatch[2].trim()
-    };
-  }
-
-  for (const key of BRIEF_SCHEMA_KEYS) {
-    if (hasAny(normalized, BRIEF_FIELD_PATTERNS[key])) {
-      return { key, value: statement.trim() };
-    }
-  }
-
-  return { key: null, value: null };
-}
-
-export function extractBriefFromTranscript(transcript = '') {
-  const turns = extractUserTurnsFromTranscript(transcript);
-  const userTurns = turns.filter((turn) => turn.role === 'user');
-
-  const collected = Object.fromEntries(BRIEF_SCHEMA_KEYS.map((key) => [key, []]));
-
-  userTurns.forEach((turn, turnIndex) => {
-    const statements = splitCandidateStatements(turn.content);
-    statements.forEach((statement, statementIndex) => {
-      const { key, value } = detectField(statement);
-      if (!key || !value) return;
-      collected[key].push({
-        value,
-        turnIndex,
-        statementIndex,
-        normalized: normalizeContent(value)
-      });
-    });
-  });
-
-  const brief = {};
-  const conflicts = [];
-
-  BRIEF_SCHEMA_KEYS.forEach((key) => {
-    const values = collected[key];
-    if (!values.length) {
-      brief[key] = null;
-      return;
-    }
-
-    const uniqueValues = [...new Set(values.map((entry) => entry.normalized))];
-    const selected = values[values.length - 1];
-    brief[key] = selected.value;
-
-    const hasAmbiguousLatestTurn =
-      values.filter((entry) => entry.turnIndex === selected.turnIndex).length > 1;
-    if (uniqueValues.length > 1 && hasAmbiguousLatestTurn) {
-      conflicts.push({
-        field: key,
-        selectedValue: selected.value,
-        reason: 'Multiple competing values in the latest user turn.',
-        candidates: values
-          .filter((entry) => entry.turnIndex === selected.turnIndex)
-          .map((entry) => entry.value)
-      });
-    }
-  });
-
-  return {
-    brief,
-    unresolvedConflicts: conflicts
-  };
-}
-
-function getUserTextFromHistory(history = []) {
-  return history
-    .filter((message) => message?.role === 'user')
-    .map((message) => message?.content || '')
-    .join('\n')
-    .toLowerCase();
-}
-
-function hasAny(text, patterns) {
-  return patterns.some((pattern) => pattern.test(text));
-}
-
-function inspectConversationStages(history = []) {
-  const userText = getUserTextFromHistory(history);
 
   const stageChecks = {
-    objective:
-      userText.length > 30 &&
-      hasAny(userText, [
-        /\b(i need|i want|goal|objective|task|build|create|write|generate|help me)\b/,
-        /\bso that\b|\boutcome\b|\bsuccess\b/
-      ]),
-    audience: hasAny(userText, [
-      /\baudience\b/,
-      /\bfor\s+(developers|engineers|students|executives|customers|users|beginners|experts|children|managers|team)\b/,
-      /\bpersona\b|\breader\b|\bend user\b|\bstakeholder\b/
-    ]),
-    contextData: hasAny(userText, [
-      /\bcontext\b|\bbackground\b|\bdata\b|\bdataset\b|\bsource\b|\btranscript\b|\bdocs?\b|\bnotes\b/,
-      /\bhere is\b|\binput\b|\breference\b/
-    ]),
-    constraints: hasAny(userText, [
-      /\bmust\b|\bshould\b|\bavoid\b|\bdon't\b|\bdo not\b|\bno\b|\blimit\b|\bconstraint\b|\bunder\b\s*\d+\s*(words?|tokens?)/,
-      /\btone\b|\bstyle\b|\bdeadline\b|\bscope\b|\bnon-goal\b|\bnot include\b/
-    ]),
-    outputFormat: hasAny(userText, [
-      /\bformat\b|\bjson\b|\bmarkdown\b|\btable\b|\bbullets?\b|\bsections?\b|\btemplate\b|\bstructure\b|\bheadings?\b/
-    ]),
-    qualityBar: hasAny(userText, [
-      /\bquality\b|\baccurac(y|te)\b|\bcriteria\b|\bchecklist\b|\bevaluate\b|\bself-critique\b|\bmeasure\b|\bacceptance\b/
-    ]),
-    examples: hasAny(userText, [
-      /\bexample\b|\bsample\b|\blike this\b|\bsuch as\b|\bfew-shot\b|\binput\/output\b/
-    ])
+    objective: hasHighConfidence('objective', 0.45),
+    audience: hasHighConfidence('audience', 0.4),
+    contextData: hasHighConfidence('context', 0.4),
+    constraints: hasHighConfidence('constraints', 0.4) || hasHighConfidence('nonGoals', 0.35),
+    outputFormat: hasHighConfidence('outputFormat', 0.4) || hasHighConfidence('tone', 0.35),
+    qualityBar: hasHighConfidence('acceptanceCriteria', 0.35),
+    examples: hasHighConfidence('examples', 0.35)
   };
 
   const stages = Object.values(STAGE_DEFINITIONS).map((definition) => ({
@@ -393,7 +201,19 @@ async function callGroq(messages) {
 app.post('/api/chat', async (req, res) => {
   try {
     const incoming = req.body.messages || [];
-    const progress = inspectConversationStages(incoming);
+    const briefExtraction = await extractBrief({
+      messages: incoming,
+      normalizeWithModel: (normalizerPrompt) =>
+        callGroq([
+          {
+            role: 'system',
+            content:
+              'You normalize conversation history into concise structured brief JSON for downstream prompt generation. Return JSON only.'
+          },
+          { role: 'user', content: normalizerPrompt }
+        ])
+    });
+    const progress = inspectConversationStages(briefExtraction);
     const stageDiagnostics = buildStageDiagnostics(progress);
 
     const messages = [
@@ -403,6 +223,9 @@ app.post('/api/chat', async (req, res) => {
         content: [
           'Stage diagnostics (advisory only, not a hard gate):',
           JSON.stringify(stageDiagnostics),
+          '',
+          'Structured brief (with confidence + assumptions):',
+          JSON.stringify(briefExtraction, null, 2),
           '',
           'Response strategy:',
           '- Ask at most one concise clarifying question when possible.',
@@ -416,7 +239,8 @@ app.post('/api/chat', async (req, res) => {
 
     res.json({
       reply,
-      stageProgress: buildStageProgressPayload(progress)
+      stageProgress: buildStageProgressPayload(progress),
+      brief: briefExtraction
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -427,31 +251,15 @@ app.post('/api/generate-prompt', async (req, res) => {
   try {
     const { transcript = '', messages = null } = req.body || {};
 
-    const transcriptText = String(transcript || '').trim();
-    const safeMessages = Array.isArray(messages) ? messages : null;
-    const hasMessageObjects =
-      safeMessages &&
-      safeMessages.every(
-        (message) =>
-          message &&
-          typeof message === 'object' &&
-          typeof message.role === 'string' &&
-          typeof message.content === 'string'
-      );
+    const { messageHistory, transcriptText, hasMessageObjects } = normalizeHistoryInput({ transcript, messages });
 
-    if (safeMessages && !hasMessageObjects) {
+    if (Array.isArray(messages) && !hasMessageObjects) {
       return res.status(400).json({
         error: 'Invalid payload: "messages" must be an array of { role, content } objects.'
       });
     }
 
-    const messagesForInspection = hasMessageObjects
-      ? safeMessages
-      : transcriptText
-        ? [{ role: 'user', content: transcriptText }]
-        : [];
-
-    const hasBasicIntent = messagesForInspection.some(
+    const hasBasicIntent = messageHistory.some(
       (message) => message.role === 'user' && String(message.content || '').trim().length > 0
     );
 
@@ -463,14 +271,20 @@ app.post('/api/generate-prompt', async (req, res) => {
       });
     }
 
-    const progress = inspectConversationStages(messagesForInspection);
-
-    const transcriptForBrief =
-      transcriptText ||
-      messagesForInspection
-        .map((message) => `${message.role}: ${message.content}`)
-        .join('\n');
-    const briefExtraction = extractBriefFromTranscript(transcriptForBrief);
+    const briefExtraction = await extractBrief({
+      transcript: transcriptText,
+      messages: messageHistory,
+      normalizeWithModel: (normalizerPrompt) =>
+        callGroq([
+          {
+            role: 'system',
+            content:
+              'You normalize conversation history into concise structured brief JSON for downstream prompt generation. Return JSON only.'
+          },
+          { role: 'user', content: normalizerPrompt }
+        ])
+    });
+    const progress = inspectConversationStages(briefExtraction);
     const stageDiagnostics = buildStageDiagnostics(progress);
 
     const generationMessages = [
@@ -487,16 +301,17 @@ app.post('/api/generate-prompt', async (req, res) => {
           '',
           `Normalized brief JSON:\n${JSON.stringify(briefExtraction.brief, null, 2)}`,
           '',
-          `Unresolved conflicts:\n${JSON.stringify(briefExtraction.unresolvedConflicts, null, 2)}`
+          `Field confidence + assumptions:\n${JSON.stringify(briefExtraction.fields, null, 2)}`,
+          '',
+          `Unresolved conflicts:\n${JSON.stringify(briefExtraction.unresolvedConflicts, null, 2)}`,
+          '',
+          `Global assumptions:\n${JSON.stringify(briefExtraction.globalAssumptions, null, 2)}`
         ].join('\n')
       }
     ];
     const prompt = await callGroq(generationMessages);
     return res.json({
-      brief: {
-        ...briefExtraction.brief,
-        unresolvedConflicts: briefExtraction.unresolvedConflicts
-      },
+      brief: briefExtraction,
       prompt,
       stageProgress: buildStageProgressPayload(progress)
     });
