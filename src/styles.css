@@ -137,6 +137,25 @@ header p {
   gap: 0.75rem;
 }
 
+.session-actions {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.session-actions .secondary {
+  background: #2a3358;
+  border: 1px solid #3d4a7f;
+}
+
+.save-meta {
+  margin: 0;
+  color: #b8c0e6;
+  font-size: 0.9rem;
+}
+
 textarea {
   width: 100%;
   border-radius: 10px;

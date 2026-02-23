@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const escapeHtml = (value) =>
   value
@@ -123,6 +123,39 @@ const STARTER_MESSAGE = {
     "Hi! I'm your Prompt Architect. Tell me what you want ChatGPT/Claude to help with, and I'll guide you through goal, context, constraints, and output format before generating a polished final prompt."
 };
 
+const SESSION_STORAGE_KEY = 'promptbuilder:last-session';
+
+const serializeSession = (sessionMessages) =>
+  JSON.stringify({
+    savedAt: new Date().toISOString(),
+    messages: sessionMessages
+  });
+
+const parseStoredSession = (value) => {
+  if (!value) return null;
+
+  try {
+    const payload = JSON.parse(value);
+    const savedAt = typeof payload.savedAt === 'string' ? payload.savedAt : null;
+    const savedMessages = Array.isArray(payload.messages) ? payload.messages : null;
+
+    if (!savedMessages) return null;
+
+    const validMessages = savedMessages.every(
+      (message) =>
+        message &&
+        (message.role === 'assistant' || message.role === 'user') &&
+        typeof message.content === 'string'
+    );
+
+    if (!validMessages) return null;
+
+    return { savedAt, messages: savedMessages };
+  } catch {
+    return null;
+  }
+};
+
 const parseApiError = async (response, fallbackMessage) => {
   const contentType = response.headers.get('content-type') || '';
   let message = fallbackMessage;
@@ -145,6 +178,7 @@ export function App() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
 
   const transcript = useMemo(
     () =>
@@ -183,6 +217,56 @@ export function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    const serialized = serializeSession(messages);
+    localStorage.setItem(SESSION_STORAGE_KEY, serialized);
+
+    const parsed = parseStoredSession(serialized);
+    setLastSavedAt(parsed?.savedAt || null);
+  }, [messages]);
+
+  const startNewSession = () => {
+    if (loading) return;
+    setMessages([STARTER_MESSAGE]);
+    setInput('');
+    setError('');
+  };
+
+  const restoreLastSession = () => {
+    if (loading) return;
+
+    const stored = parseStoredSession(localStorage.getItem(SESSION_STORAGE_KEY));
+
+    if (!stored) {
+      setError('No previous session found in local storage.');
+      return;
+    }
+
+    setMessages(stored.messages);
+    setError('');
+    setLastSavedAt(stored.savedAt);
+  };
+
+  const exportTranscript = () => {
+    const lastPromptMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant' && message.content.startsWith('## Final Prompt'));
+
+    const exportedPrompt = lastPromptMessage ? `${lastPromptMessage.content}\n\n` : '';
+    const body = `${exportedPrompt}## Transcript\n\n${transcript}`;
+    const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const timestamp = new Date().toISOString().replaceAll(':', '-');
+
+    anchor.href = url;
+    anchor.download = `promptbuilder-session-${timestamp}.txt`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const buildFinalPrompt = async () => {
@@ -244,6 +328,19 @@ export function App() {
       </section>
 
       {error ? <p className="error">{error}</p> : null}
+
+      <section className="session-actions" aria-label="session controls">
+        <button className="secondary" onClick={startNewSession} disabled={loading}>
+          New Session
+        </button>
+        <button className="secondary" onClick={restoreLastSession} disabled={loading}>
+          Restore Last Session
+        </button>
+        <button className="secondary" onClick={exportTranscript} disabled={messages.length < 2}>
+          Export Prompt/Transcript
+        </button>
+        {lastSavedAt ? <p className="save-meta">Saved {new Date(lastSavedAt).toLocaleString()}</p> : null}
+      </section>
 
       <section className="composer">
         <textarea
