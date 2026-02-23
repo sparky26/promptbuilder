@@ -200,6 +200,15 @@ app.post('/api/generate-prompt', async (req, res) => {
     const progress = inspectConversationStages(briefExtraction);
     const stageDiagnostics = buildStageDiagnostics(progress);
 
+    if (!progress.canGenerateFinalPrompt) {
+      return res.status(400).json({
+        error:
+          'Not enough required prompt stages are complete to generate a final prompt yet.',
+        stageProgress: buildStageProgressPayload(progress),
+        missingRequiredItems: stageDiagnostics.missingRequiredItems
+      });
+    }
+
     const generationMessages = [
       { role: 'system', content: finalPromptSystemPrompt },
       {

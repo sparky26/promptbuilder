@@ -24,6 +24,7 @@ export function App() {
   const chatWindowRef = useRef(null);
 
   const finalPromptReadiness = useMemo(() => {
+    const hasStageReadinessSignal = typeof stageProgress?.canGenerateFinalPrompt === 'boolean';
     const canGenerateByStageProgress = stageProgress?.canGenerateFinalPrompt === true;
     const stages = Array.isArray(stageProgress?.stages) ? stageProgress.stages : [];
     const missingRequiredStageKeys = Array.isArray(stageProgress?.missingRequiredStageKeys)
@@ -46,6 +47,7 @@ export function App() {
       .filter(Boolean);
 
     return {
+      hasStageReadinessSignal,
       canGenerateByStageProgress,
       missingStageLabels
     };
@@ -191,13 +193,15 @@ export function App() {
           />
           <div className="composer-actions">
             <p className={`hint ${finalPromptReadiness.canGenerateByStageProgress ? 'is-complete' : ''}`}>
-              {finalPromptReadiness.canGenerateByStageProgress
-                ? 'You can generate now. Add more detail anytime to improve quality.'
-                : `Can generate now; add more detail for better quality${
-                    finalPromptReadiness.missingStageLabels.length
-                      ? ` (suggested: ${finalPromptReadiness.missingStageLabels.join(', ')})`
-                      : ''
-                  }.`}
+              {finalPromptReadiness.hasStageReadinessSignal
+                ? finalPromptReadiness.canGenerateByStageProgress
+                  ? 'Ready to generate. Add more detail anytime to improve quality.'
+                  : `Not ready yet — answer a bit more before generating${
+                      finalPromptReadiness.missingStageLabels.length
+                        ? ` (missing: ${finalPromptReadiness.missingStageLabels.join(', ')})`
+                        : ''
+                    }.`
+                : 'Add your first request to start readiness tracking.'}
             </p>
             {hasFinalPrompt ? (
               <div className="refine-actions" aria-label="quick refinement suggestions">
