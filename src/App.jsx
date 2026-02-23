@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787').replace(
+  /\/$/,
+  ''
+);
+
 const STARTER_MESSAGE = {
   role: 'assistant',
   content:
@@ -31,7 +36,7 @@ export function App() {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8787/api/chat', {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'coach', messages: nextMessages })
@@ -57,7 +62,7 @@ export function App() {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8787/api/generate-prompt', {
+      const response = await fetch(`${API_BASE_URL}/api/generate-prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript, messages })
