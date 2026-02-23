@@ -123,6 +123,23 @@ const STARTER_MESSAGE = {
     "Hi! I'm your Prompt Architect. Tell me what you want ChatGPT/Claude to help with, and I'll guide you through goal, context, constraints, and output format before generating a polished final prompt."
 };
 
+const parseApiError = async (response, fallbackMessage) => {
+  const contentType = response.headers.get('content-type') || '';
+  let message = fallbackMessage;
+
+  if (contentType.includes('application/json')) {
+    const payload = await response.json();
+    message = payload.error || payload.message || fallbackMessage;
+  } else {
+    const text = (await response.text()).trim();
+    if (text) {
+      message = text;
+    }
+  }
+
+  return `${response.status} ${message}`;
+};
+
 export function App() {
   const [messages, setMessages] = useState([STARTER_MESSAGE]);
   const [input, setInput] = useState('');
@@ -155,8 +172,8 @@ export function App() {
       });
 
       if (!response.ok) {
-        const payload = await response.json();
-        throw new Error(payload.error || 'Failed to generate assistant response');
+        const message = await parseApiError(response, 'Failed to generate assistant response');
+        throw new Error(message);
       }
 
       const payload = await response.json();
@@ -181,8 +198,8 @@ export function App() {
       });
 
       if (!response.ok) {
-        const payload = await response.json();
-        throw new Error(payload.error || 'Failed to build final prompt');
+        const message = await parseApiError(response, 'Failed to build final prompt');
+        throw new Error(message);
       }
 
       const payload = await response.json();
