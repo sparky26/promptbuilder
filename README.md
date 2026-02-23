@@ -15,7 +15,7 @@ The app embeds practical prompt-engineering strategies:
 
 - React (Vite) for the chat UI
 - Express API server
-- Together AI Chat Completions API
+- Groq Chat Completions API
 
 ## Setup
 
@@ -27,7 +27,7 @@ The app embeds practical prompt-engineering strategies:
    ```bash
    cp .env.example .env
    ```
-3. Set `TOGETHER_API_KEY` in `.env`.
+3. Set `GROQ_API_KEY` in `.env`.
 4. Configure URLs:
    - In development, set `VITE_API_BASE_URL` (frontend -> backend target) and `PORT` (backend listener) in `.env`.
    - Defaults are `VITE_API_BASE_URL=http://localhost:8787` and `PORT=8787`.
@@ -56,4 +56,4 @@ The app embeds practical prompt-engineering strategies:
 ## Notes
 
 - This repo intentionally leaves the API key as a placeholder.
-- You can swap the Together model in `.env` via `TOGETHER_MODEL`.
+- You can swap the Groq model in `.env` via `GROQ_MODEL`.

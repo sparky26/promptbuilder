@@ -5,8 +5,8 @@ import { coachingSystemPrompt, finalPromptSystemPrompt } from './prompts.js';
 
 const app = express();
 const port = process.env.PORT || 8787;
-const togetherApiKey = process.env.TOGETHER_API_KEY;
-const model = process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.1-70B-Instruct-Turbo';
+const groqApiKey = process.env.GROQ_API_KEY;
+const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -340,15 +340,15 @@ function buildFollowUpMessage(progress) {
   ].join('\n');
 }
 
-async function callTogether(messages) {
-  if (!togetherApiKey) {
-    throw new Error('Missing TOGETHER_API_KEY. Add it to .env file.');
+async function callGroq(messages) {
+  if (!groqApiKey) {
+    throw new Error('Missing GROQ_API_KEY. Add it to .env file.');
   }
 
-  const response = await fetch('https://api.together.xyz/v1/chat/completions', {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${togetherApiKey}`,
+      Authorization: `Bearer ${groqApiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -360,7 +360,7 @@ async function callTogether(messages) {
 
   if (!response.ok) {
     const raw = await response.text();
-    throw new Error(`Together API error (${response.status}): ${raw}`);
+    throw new Error(`Groq API error (${response.status}): ${raw}`);
   }
 
   const payload = await response.json();
@@ -379,7 +379,7 @@ app.post('/api/chat', async (req, res) => {
       reply = followUp;
     } else {
       const messages = [{ role: 'system', content: coachingSystemPrompt }, ...incoming];
-      reply = await callTogether(messages);
+      reply = await callGroq(messages);
     }
 
     res.json({
@@ -448,7 +448,7 @@ app.post('/api/generate-prompt', async (req, res) => {
         content: `Normalized brief JSON:\n${JSON.stringify(briefExtraction.brief, null, 2)}\n\nUnresolved conflicts:\n${JSON.stringify(briefExtraction.unresolvedConflicts, null, 2)}`
       }
     ];
-    const prompt = await callTogether(messages);
+    const prompt = await callGroq(messages);
     return res.json({
       brief: {
         ...briefExtraction.brief,
