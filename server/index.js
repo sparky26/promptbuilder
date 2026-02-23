@@ -325,19 +325,22 @@ function inspectConversationStages(history = []) {
   };
 }
 
-function buildFollowUpMessage(progress) {
+function buildStageDiagnostics(progress) {
   const missingRequiredStages = progress.stages.filter((stage) => stage.required && !stage.complete);
-  const nextQuestions = missingRequiredStages.slice(0, 2).map((stage) => `- ${stage.followUpQuestion}`);
 
-  if (!nextQuestions.length) {
-    return null;
-  }
-
-  return [
-    "Great start. Before we generate the final prompt, I still need a bit more detail:",
-    ...nextQuestions,
-    'Reply with short bullet points and I will assemble the final prompt-ready specification.'
-  ].join('\n');
+  return {
+    requiredCompleteness: Number(progress.requiredCompleteness.toFixed(3)),
+    overallCompleteness: Number(progress.overallCompleteness.toFixed(3)),
+    completedRequired: progress.completedRequired,
+    requiredTotal: progress.requiredTotal,
+    missingRequiredStageKeys: missingRequiredStages.map((stage) => stage.key),
+    missingRequiredItems: missingRequiredStages.map((stage) => ({
+      key: stage.key,
+      label: stage.label,
+      requiredFields: stage.requiredFields,
+      followUpQuestion: stage.followUpQuestion
+    }))
+  };
 }
 
 async function callGroq(messages) {
@@ -371,16 +374,25 @@ app.post('/api/chat', async (req, res) => {
   try {
     const incoming = req.body.messages || [];
     const progress = inspectConversationStages(incoming);
+    const stageDiagnostics = buildStageDiagnostics(progress);
 
-    const followUp = buildFollowUpMessage(progress);
-    let reply = '';
-
-    if (followUp) {
-      reply = followUp;
-    } else {
-      const messages = [{ role: 'system', content: coachingSystemPrompt }, ...incoming];
-      reply = await callGroq(messages);
-    }
+    const messages = [
+      { role: 'system', content: coachingSystemPrompt },
+      {
+        role: 'system',
+        content: [
+          'Stage diagnostics (advisory only, not a hard gate):',
+          JSON.stringify(stageDiagnostics),
+          '',
+          'Response strategy:',
+          '- Ask at most one concise clarifying question when possible.',
+          '- If enough information exists, generate a direct draft prompt immediately.',
+          '- If details are sparse, proceed with explicit assumptions instead of blocking.'
+        ].join('\n')
+      },
+      ...incoming
+    ];
+    const reply = await callGroq(messages);
 
     res.json({
       reply,
@@ -391,6 +403,7 @@ app.post('/api/chat', async (req, res) => {
         overallCompleteness: Number(progress.overallCompleteness.toFixed(3)),
         completedRequired: progress.completedRequired,
         requiredTotal: progress.requiredTotal,
+        missingRequiredStageKeys: progress.missingRequiredStageKeys,
         stages: progress.stages.map((stage) => ({
           key: stage.key,
           label: stage.label,
