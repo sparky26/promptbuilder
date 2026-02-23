@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, renderInlineMarkdown, markdownToSafeHtml } from '../markdown.js';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { AssistantMarkdown } from '../markdown.js';
 import { parseStoredSession, serializeSession, SESSION_STORAGE_KEY } from '../session.js';
 import { parseApiError } from '../api.js';
 
@@ -29,27 +31,36 @@ test('parseStoredSession rejects invalid payloads', () => {
   assert.equal(parseStoredSession(JSON.stringify({ messages: [{ role: 'user', content: 42 }] })), null);
 });
 
-test('escapeHtml escapes dangerous HTML characters', () => {
-  assert.equal(escapeHtml('<script>"x" & y</script>'), '&lt;script&gt;&quot;x&quot; &amp; y&lt;/script&gt;');
-});
+test('AssistantMarkdown renders representative markdown content safely', () => {
+  const markdown = [
+    '# Heading 1',
+    '',
+    'Paragraph with `inline` code.',
+    '',
+    '```js',
+    'const value = 42;',
+    '```',
+    '',
+    '- first item',
+    '- second item',
+    '',
+    '1. alpha',
+    '2. beta',
+    '',
+    '[example](https://example.com)',
+    '',
+    '<script>alert(1)</script>'
+  ].join('\n');
 
-test('renderInlineMarkdown formats inline elements and preserves safety', () => {
-  const result = renderInlineMarkdown('Use **bold** and `code` and [link](https://example.com) <b>tag</b>');
-  assert.match(result, /<strong>bold<\/strong>/);
-  assert.match(result, /<code>code<\/code>/);
-  assert.match(result, /<a href="https:\/\/example.com" target="_blank" rel="noreferrer">link<\/a>/);
-  assert.match(result, /&lt;b&gt;tag&lt;\/b&gt;/);
-});
+  const html = renderToStaticMarkup(createElement(AssistantMarkdown, { content: markdown }));
 
-test('markdownToSafeHtml handles headings, lists, paragraphs, and code blocks', () => {
-  const markdown = ['# Title', '', '- first', '- second', '', '1. alpha', '2. beta', '', '```', '<unsafe>', '```'].join('\n');
-
-  const html = markdownToSafeHtml(markdown);
-
-  assert.match(html, /<h1>Title<\/h1>/);
-  assert.match(html, /<ul><li>first<\/li><li>second<\/li><\/ul>/);
-  assert.match(html, /<ol><li>alpha<\/li><li>beta<\/li><\/ol>/);
-  assert.match(html, /<pre><code>&lt;unsafe&gt;<\/code><\/pre>/);
+  assert.match(html, /<h1>Heading 1<\/h1>/);
+  assert.match(html, /<code>inline<\/code>/);
+  assert.match(html, /<pre><code class="language-js">const value = 42;\n<\/code><\/pre>/);
+  assert.match(html, /<ul>\s*<li>first item<\/li>\s*<li>second item<\/li>\s*<\/ul>/);
+  assert.match(html, /<ol>\s*<li>alpha<\/li>\s*<li>beta<\/li>\s*<\/ol>/);
+  assert.match(html, /<a href="https:\/\/example.com"[^>]*target="_blank"[^>]*rel="noreferrer"[^>]*>example<\/a>/);
+  assert.doesNotMatch(html, /<script>/);
 });
 
 const createMockResponse = ({ status, contentType = 'application/json', jsonBody, textBody = '' }) => ({

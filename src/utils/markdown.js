@@ -1,114 +1,55 @@
-export const escapeHtml = (value) =>
-  value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+import { createElement } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 
-export const renderInlineMarkdown = (text) => {
-  const escaped = escapeHtml(text);
-
-  return escaped
-    .replace(/`([^`]+?)`/g, '<code>$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(
-      /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
-    );
+export const markdownSanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames || []),
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'del',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td'
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [...(defaultSchema.attributes?.a || []), 'target', 'rel'],
+    code: [...(defaultSchema.attributes?.code || []), 'className']
+  }
 };
 
-export const markdownToSafeHtml = (markdown) => {
-  const lines = markdown.split(/\r?\n/);
-  let html = '';
-  let paragraph = [];
-  let inCodeBlock = false;
-  let codeBuffer = [];
-  let listType = null;
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    html += `<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`;
-    paragraph = [];
-  };
-
-  const closeList = () => {
-    if (!listType) return;
-    html += listType === 'ol' ? '</ol>' : '</ul>';
-    listType = null;
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-
-    if (line.startsWith('```')) {
-      flushParagraph();
-      closeList();
-
-      if (inCodeBlock) {
-        html += `<pre><code>${escapeHtml(codeBuffer.join('\n'))}</code></pre>`;
-        codeBuffer = [];
-      }
-
-      inCodeBlock = !inCodeBlock;
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBuffer.push(rawLine);
-      continue;
-    }
-
-    if (!line) {
-      flushParagraph();
-      closeList();
-      continue;
-    }
-
-    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
-    if (headingMatch) {
-      flushParagraph();
-      closeList();
-      const level = headingMatch[1].length;
-      html += `<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`;
-      continue;
-    }
-
-    const unorderedMatch = line.match(/^[-*]\s+(.+)$/);
-    if (unorderedMatch) {
-      flushParagraph();
-      if (listType !== 'ul') {
-        closeList();
-        html += '<ul>';
-        listType = 'ul';
-      }
-      html += `<li>${renderInlineMarkdown(unorderedMatch[1])}</li>`;
-      continue;
-    }
-
-    const orderedMatch = line.match(/^\d+\.\s+(.+)$/);
-    if (orderedMatch) {
-      flushParagraph();
-      if (listType !== 'ol') {
-        closeList();
-        html += '<ol>';
-        listType = 'ol';
-      }
-      html += `<li>${renderInlineMarkdown(orderedMatch[1])}</li>`;
-      continue;
-    }
-
-    closeList();
-    paragraph.push(line);
-  }
-
-  flushParagraph();
-  closeList();
-
-  if (inCodeBlock) {
-    html += `<pre><code>${escapeHtml(codeBuffer.join('\n'))}</code></pre>`;
-  }
-
-  return html;
+const markdownComponents = {
+  a: ({ href, children, ...props }) =>
+    createElement(
+      'a',
+      {
+        ...props,
+        href,
+        target: '_blank',
+        rel: 'noreferrer'
+      },
+      children
+    )
 };
+
+export const AssistantMarkdown = ({ content }) =>
+  createElement(
+    ReactMarkdown,
+    {
+      className: 'assistant-markdown',
+      remarkPlugins: [remarkGfm],
+      rehypePlugins: [[rehypeSanitize, markdownSanitizeSchema]],
+      components: markdownComponents
+    },
+    content
+  );
