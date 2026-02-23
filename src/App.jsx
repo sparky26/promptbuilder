@@ -60,7 +60,7 @@ export function App() {
       const response = await fetch('http://localhost:8787/api/generate-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript })
+        body: JSON.stringify({ transcript, messages })
       });
 
       if (!response.ok) {
