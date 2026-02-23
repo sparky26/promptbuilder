@@ -231,6 +231,22 @@ body {
   margin: 0;
   color: #c1c2cf;
   font-size: 0.85rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.progress-heading::-webkit-details-marker {
+  display: none;
+}
+
+.progress-heading::before {
+  content: "▸";
+  margin-right: 0.45rem;
+  color: #9fa1af;
+}
+
+.progress-panel[open] .progress-heading::before {
+  content: "▾";
 }
 
 .progress-grid {
@@ -282,6 +298,19 @@ textarea {
   margin: 0;
   color: #a9abbb;
   font-size: 0.86rem;
+}
+
+.refine-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.refine-actions button.secondary {
+  text-align: center;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
 }
 
 button {

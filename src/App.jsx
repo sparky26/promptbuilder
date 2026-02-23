@@ -170,7 +170,29 @@ const parseApiError = async (response, fallbackMessage) => {
     }
   }
 
-  return `${response.status} ${message}`;
+  const rawMessage = `${response.status} ${message}`;
+
+  if (response.status >= 500) {
+    return 'Something went wrong on our side while processing this request. Please try again in a moment.';
+  }
+
+  if (response.status === 429) {
+    return 'Too many requests right now. Please wait a few seconds and try again.';
+  }
+
+  if (response.status === 400) {
+    if (message.toLowerCase().includes('at least one non-empty user message')) {
+      return 'Please add a message describing your goal, then try generating again.';
+    }
+
+    if (message.toLowerCase().includes('messages')) {
+      return 'We could not read the conversation history. Please send another message and try again.';
+    }
+
+    return 'We need a little more input to continue. Add context or constraints, then try again.';
+  }
+
+  return rawMessage;
 };
 
 export function App() {
@@ -180,6 +202,7 @@ export function App() {
   const [error, setError] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [stageProgress, setStageProgress] = useState(null);
+  const [isProgressExpanded, setIsProgressExpanded] = useState(false);
   const chatWindowRef = useRef(null);
 
   const transcript = useMemo(
@@ -218,8 +241,13 @@ export function App() {
     };
   }, [stageProgress]);
 
-  const canGenerateFinalPrompt =
-    !loading && finalPromptReadiness.canGenerateByStageProgress && messages.length >= 3;
+  const hasUserInput = messages.some(
+    (message) => message.role === 'user' && Boolean(message.content.trim())
+  );
+  const hasFinalPrompt = messages.some(
+    (message) => message.role === 'assistant' && message.content.startsWith('## Final Prompt')
+  );
+  const canGenerateFinalPrompt = !loading && hasUserInput;
 
   const sendMessage = async () => {
     const trimmed = input.trim();
@@ -280,6 +308,7 @@ export function App() {
     setInput('');
     setError('');
     setStageProgress(null);
+    setIsProgressExpanded(false);
   };
 
   const restoreLastSession = () => {
@@ -296,6 +325,7 @@ export function App() {
     setError('');
     setLastSavedAt(stored.savedAt);
     setStageProgress(null);
+    setIsProgressExpanded(false);
   };
 
   const exportTranscript = () => {
@@ -385,7 +415,7 @@ export function App() {
             <p>{messages.length} messages in this conversation</p>
           </div>
           <button onClick={buildFinalPrompt} disabled={!canGenerateFinalPrompt}>
-            Generate Final Prompt
+            {hasFinalPrompt ? 'Regenerate Final Prompt' : 'Generate Final Prompt'}
           </button>
         </header>
 
@@ -420,8 +450,13 @@ export function App() {
         </section>
 
         {Array.isArray(stageProgress?.stages) && stageProgress.stages.length ? (
-          <section className="progress-panel" aria-label="stage progress">
-            <p className="progress-heading">Progress checklist</p>
+          <details
+            className="progress-panel"
+            aria-label="stage progress"
+            open={isProgressExpanded}
+            onToggle={(event) => setIsProgressExpanded(event.currentTarget.open)}
+          >
+            <summary className="progress-heading">Progress checklist (optional)</summary>
             <div className="progress-grid">
               {stageProgress.stages.map((stage, index) => {
                 const isComplete = stage.isComplete ?? stage.complete;
@@ -434,7 +469,7 @@ export function App() {
                 );
               })}
             </div>
-          </section>
+          </details>
         ) : null}
 
         {error ? <p className="error">{error}</p> : null}
@@ -453,16 +488,30 @@ export function App() {
             }}
           />
           <div className="composer-actions">
-            {!finalPromptReadiness.canGenerateByStageProgress ? (
-              <p className="hint">
-                Missing required fields
-                {finalPromptReadiness.missingStageLabels.length
-                  ? `: ${finalPromptReadiness.missingStageLabels.join(', ')}`
-                  : ''}
-              </p>
-            ) : (
-              <p className="hint is-complete">Ready to generate final prompt.</p>
-            )}
+            <p className={`hint ${finalPromptReadiness.canGenerateByStageProgress ? 'is-complete' : ''}`}>
+              {finalPromptReadiness.canGenerateByStageProgress
+                ? 'You can generate now. Add more detail anytime to improve quality.'
+                : `Can generate now; add more detail for better quality${
+                    finalPromptReadiness.missingStageLabels.length
+                      ? ` (suggested: ${finalPromptReadiness.missingStageLabels.join(', ')})`
+                      : ''
+                  }.`}
+            </p>
+            {hasFinalPrompt ? (
+              <div className="refine-actions" aria-label="quick refinement suggestions">
+                {['Make it shorter', 'Make it more formal', 'Adapt it for executives'].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="secondary"
+                    disabled={loading}
+                    onClick={() => setInput(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <button onClick={sendMessage} disabled={loading || !input.trim()}>
               {loading ? 'Thinking…' : 'Send'}
             </button>
