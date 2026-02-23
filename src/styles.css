@@ -42,9 +42,81 @@ header p {
   max-width: 90%;
 }
 
-.bubble p {
+.user-content {
   margin: 0.35rem 0 0;
   white-space: pre-wrap;
+}
+
+.assistant-markdown {
+  margin-top: 0.35rem;
+  color: #eef2ff;
+}
+
+.assistant-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.assistant-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.assistant-markdown h1,
+.assistant-markdown h2,
+.assistant-markdown h3 {
+  margin: 0.6rem 0 0.4rem;
+  line-height: 1.3;
+}
+
+.assistant-markdown h1 {
+  font-size: 1.2rem;
+}
+
+.assistant-markdown h2 {
+  font-size: 1.08rem;
+}
+
+.assistant-markdown h3 {
+  font-size: 1rem;
+}
+
+.assistant-markdown p {
+  margin: 0.45rem 0;
+}
+
+.assistant-markdown ul,
+.assistant-markdown ol {
+  margin: 0.45rem 0 0.45rem 1.2rem;
+  padding: 0;
+}
+
+.assistant-markdown li + li {
+  margin-top: 0.2rem;
+}
+
+.assistant-markdown pre {
+  margin: 0.55rem 0;
+  border: 1px solid #465284;
+  border-radius: 8px;
+  background: #101527;
+  padding: 0.65rem 0.75rem;
+  overflow-x: auto;
+}
+
+.assistant-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.assistant-markdown p code,
+.assistant-markdown li code {
+  background: #101527;
+  border: 1px solid #3b456f;
+  border-radius: 6px;
+  padding: 0.1rem 0.3rem;
+}
+
+.assistant-markdown a {
+  color: #9cc4ff;
 }
 
 .bubble.assistant {
