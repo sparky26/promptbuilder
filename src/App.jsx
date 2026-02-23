@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { usePromptSession } from './hooks/usePromptSession';
-import { AssistantMarkdown } from './utils/markdown';
+import { Composer } from './components/Composer';
+import { MessageList } from './components/MessageList';
+import { StageProgressPanel } from './components/StageProgressPanel';
 
 export function App() {
   const {
@@ -127,102 +129,25 @@ export function App() {
         </header>
 
         <section className="chat-window" ref={chatWindowRef}>
-          {messages.map((message, index) => (
-            <article key={`${message.role}-${index}`} className={`message-row ${message.role}`}>
-              <span className="avatar" aria-hidden="true">
-                {message.role === 'assistant' ? 'AI' : 'You'}
-              </span>
-              <div className={`bubble ${message.role}`}>
-                {message.role === 'assistant' ? (
-                  <AssistantMarkdown content={message.content} />
-                ) : (
-                  <p className="user-content">{message.content}</p>
-                )}
-              </div>
-            </article>
-          ))}
-          {loading ? (
-            <article className="message-row assistant" aria-live="polite" aria-label="assistant is thinking">
-              <span className="avatar" aria-hidden="true">
-                AI
-              </span>
-              <div className="bubble assistant">
-                <p className="user-content">Thinking…</p>
-              </div>
-            </article>
-          ) : null}
+          <MessageList loading={loading} messages={messages} />
         </section>
 
-        {Array.isArray(stageProgress?.stages) && stageProgress.stages.length ? (
-          <details
-            className="progress-panel"
-            aria-label="stage progress"
-            open={isProgressExpanded}
-            onToggle={(event) => setIsProgressExpanded(event.currentTarget.open)}
-          >
-            <summary className="progress-heading">Progress checklist (optional)</summary>
-            <div className="progress-grid">
-              {stageProgress.stages.map((stage, index) => {
-                const isComplete = stage.isComplete ?? stage.complete;
-                const label = stage.label || stage.name || `Stage ${index + 1}`;
-
-                return (
-                  <p key={`${label}-${index}`} className={`progress-item ${isComplete ? 'is-complete' : 'is-missing'}`}>
-                    <span aria-hidden="true">{isComplete ? '●' : '○'}</span> {label}
-                  </p>
-                );
-              })}
-            </div>
-          </details>
-        ) : null}
+        <StageProgressPanel
+          isProgressExpanded={isProgressExpanded}
+          setIsProgressExpanded={setIsProgressExpanded}
+          stageProgress={stageProgress}
+        />
 
         {error ? <p className="error">{error}</p> : null}
 
-        <section className="composer">
-          <textarea
-            rows={3}
-            placeholder="Message Prompt Architect..."
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-          />
-          <div className="composer-actions">
-            <p className={`hint ${finalPromptReadiness.canGenerateByStageProgress ? 'is-complete' : ''}`}>
-              {finalPromptReadiness.hasStageReadinessSignal
-                ? finalPromptReadiness.canGenerateByStageProgress
-                  ? 'Ready to generate. Add more detail anytime to improve quality.'
-                  : `Not ready yet — answer a bit more before generating${
-                      finalPromptReadiness.missingStageLabels.length
-                        ? ` (missing: ${finalPromptReadiness.missingStageLabels.join(', ')})`
-                        : ''
-                    }.`
-                : 'Add your first request to start readiness tracking.'}
-            </p>
-            {hasFinalPrompt ? (
-              <div className="refine-actions" aria-label="quick refinement suggestions">
-                {['Make it shorter', 'Make it more formal', 'Adapt it for executives'].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    className="secondary"
-                    disabled={loading}
-                    onClick={() => setInput(suggestion)}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <button onClick={sendMessage} disabled={loading || !input.trim()}>
-              {loading ? 'Thinking…' : 'Send'}
-            </button>
-          </div>
-        </section>
+        <Composer
+          finalPromptReadiness={finalPromptReadiness}
+          hasFinalPrompt={hasFinalPrompt}
+          input={input}
+          loading={loading}
+          sendMessage={sendMessage}
+          setInput={setInput}
+        />
       </section>
     </main>
   );

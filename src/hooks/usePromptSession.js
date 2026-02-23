@@ -1,15 +1,25 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL, parseApiError } from '../utils/api';
 import { parseStoredSession, serializeSession, SESSION_STORAGE_KEY } from '../utils/session';
 
-const STARTER_MESSAGE = {
-  role: 'assistant',
-  content:
-    "Hi! I'm your Prompt Architect. Tell me what you want ChatGPT/Claude to help with, and I'll guide you through goal, context, constraints, and output format before generating a polished final prompt."
-};
+const STARTER_MESSAGE_CONTENT =
+  "Hi! I'm your Prompt Architect. Tell me what you want ChatGPT/Claude to help with, and I'll guide you through goal, context, constraints, and output format before generating a polished final prompt.";
+
+const toApiMessage = (message) => ({ role: message.role, content: message.content });
 
 export const usePromptSession = () => {
-  const [messages, setMessages] = useState([STARTER_MESSAGE]);
+  const messageCounterRef = useRef(0);
+  const createMessage = (role, content) => {
+    messageCounterRef.current += 1;
+
+    return {
+      id: `${Date.now()}-${messageCounterRef.current}`,
+      role,
+      content
+    };
+  };
+
+  const [messages, setMessages] = useState([createMessage('assistant', STARTER_MESSAGE_CONTENT)]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +51,7 @@ export const usePromptSession = () => {
     const trimmed = input.trim();
     if (!trimmed || loading) return;
 
-    const nextMessages = [...messages, { role: 'user', content: trimmed }];
+    const nextMessages = [...messages, createMessage('user', trimmed)];
     setMessages(nextMessages);
     setInput('');
     setError('');
@@ -51,7 +61,7 @@ export const usePromptSession = () => {
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'coach', messages: nextMessages })
+        body: JSON.stringify({ mode: 'coach', messages: nextMessages.map(toApiMessage) })
       });
 
       if (!response.ok) {
@@ -60,7 +70,7 @@ export const usePromptSession = () => {
       }
 
       const payload = await response.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: payload.reply }]);
+      setMessages((prev) => [...prev, createMessage('assistant', payload.reply)]);
       setStageProgress(payload.stageProgress || null);
     } catch (err) {
       setError(err.message);
@@ -78,7 +88,7 @@ export const usePromptSession = () => {
       const response = await fetch(`${API_BASE_URL}/api/generate-prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, messages })
+        body: JSON.stringify({ transcript, messages: messages.map(toApiMessage) })
       });
 
       if (!response.ok) {
@@ -89,10 +99,7 @@ export const usePromptSession = () => {
       const payload = await response.json();
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: `## Final Prompt\n\n${payload.prompt}`
-        }
+        createMessage('assistant', `## Final Prompt\n\n${payload.prompt}`)
       ]);
       setStageProgress(payload.stageProgress || null);
     } catch (err) {
@@ -104,7 +111,7 @@ export const usePromptSession = () => {
 
   const startNewSession = () => {
     if (loading) return;
-    setMessages([STARTER_MESSAGE]);
+    setMessages([createMessage('assistant', STARTER_MESSAGE_CONTENT)]);
     setInput('');
     setError('');
     setStageProgress(null);
@@ -121,7 +128,12 @@ export const usePromptSession = () => {
       return;
     }
 
-    setMessages(stored.messages);
+    const messagesWithIds = stored.messages.map((message) => ({
+      ...message,
+      id: message.id || createMessage(message.role, message.content).id
+    }));
+
+    setMessages(messagesWithIds);
     setError('');
     setLastSavedAt(stored.savedAt);
     setStageProgress(null);
