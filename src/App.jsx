@@ -97,7 +97,7 @@ export function App() {
           <p className="sidebar-eyebrow">Prompt Builder</p>
           <h1>Prompt Architect</h1>
           <p className="sidebar-copy">
-            ChatGPT-inspired workspace to shape requirements and generate a polished final prompt.
+            I am an expert prompt builder, who will help you build the perfect prompt for your agent
           </p>
         </div>
 
