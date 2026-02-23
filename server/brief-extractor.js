@@ -1,31 +1,4 @@
-const BRIEF_SCHEMA_FIELDS = [
-  'objective',
-  'audience',
-  'context',
-  'constraints',
-  'nonGoals',
-  'outputFormat',
-  'tone',
-  'examples',
-  'acceptanceCriteria'
-];
-
-const BRIEF_FIELD_PATTERNS = {
-  objective: [/\bobjective\b/, /\bgoal\b/, /\bi need\b/, /\bi want\b/, /\btask\b/],
-  audience: [/\baudience\b/, /\bfor\b/, /\btarget\b/, /\breaders?\b/, /\busers?\b/],
-  context: [/\bcontext\b/, /\bbackground\b/, /\bsource\b/, /\bdata\b/, /\binput\b/],
-  constraints: [/\bconstraint\b/, /\bmust\b/, /\bshould\b/, /\blimit\b/, /\bavoid\b/],
-  nonGoals: [/\bnon-goals?\b/, /\bout of scope\b/, /\bdo not\b/, /\bdon't\b/, /\bnot include\b/],
-  outputFormat: [/\boutput\s*format\b/, /\bformat\b/, /\bjson\b/, /\bmarkdown\b/, /\btable\b/],
-  tone: [/\btone\b/, /\bvoice\b/, /\bstyle\b/, /\bformal\b/, /\bcasual\b/],
-  examples: [/\bexample\b/, /\bsample\b/, /\bfew-shot\b/, /\blike this\b/],
-  acceptanceCriteria: [
-    /\bacceptance\s*criteria\b/,
-    /\bsuccess\s*criteria\b/,
-    /\bdefinition of done\b/,
-    /\bquality bar\b/
-  ]
-};
+import { briefFieldKeys, briefFieldPatterns, explicitBriefFieldAliasMap } from './domain/brief-schema.js';
 
 function normalizeContent(value) {
   return String(value || '')
@@ -108,32 +81,19 @@ function extractUserTurnsFromTranscript(transcript = '') {
 
 function detectField(statement) {
   const normalized = normalizeContent(statement);
-  const explicitMatch = normalized.match(
-    /^(objective|audience|context|constraints|non-goals?|non goals|output format|tone|examples?|acceptance criteria)\s*:\s*(.+)$/i
-  );
+  const explicitMatch = normalized.match(/^(.+?)\s*:\s*(.+)$/i);
 
   if (explicitMatch) {
-    const explicitKey = explicitMatch[1].toLowerCase();
-    const explicitMap = {
-      objective: 'objective',
-      audience: 'audience',
-      context: 'context',
-      constraints: 'constraints',
-      'non-goal': 'nonGoals',
-      'non-goals': 'nonGoals',
-      'non goals': 'nonGoals',
-      'output format': 'outputFormat',
-      tone: 'tone',
-      example: 'examples',
-      examples: 'examples',
-      'acceptance criteria': 'acceptanceCriteria'
+    const explicitKey = explicitMatch[1].toLowerCase().trim();
+    return {
+      key: explicitBriefFieldAliasMap[explicitKey] || null,
+      value: explicitMatch[2].trim(),
+      explicit: Boolean(explicitBriefFieldAliasMap[explicitKey])
     };
-
-    return { key: explicitMap[explicitKey] || null, value: explicitMatch[2].trim(), explicit: true };
   }
 
-  for (const key of BRIEF_SCHEMA_FIELDS) {
-    if (hasAny(normalized, BRIEF_FIELD_PATTERNS[key])) {
+  for (const key of briefFieldKeys) {
+    if (hasAny(normalized, briefFieldPatterns[key])) {
       return { key, value: statement.trim(), explicit: false };
     }
   }
@@ -144,7 +104,7 @@ function detectField(statement) {
 function extractHeuristicBrief(transcript = '') {
   const turns = extractUserTurnsFromTranscript(transcript);
   const userTurns = turns.filter((turn) => turn.role === 'user');
-  const collected = Object.fromEntries(BRIEF_SCHEMA_FIELDS.map((key) => [key, []]));
+  const collected = Object.fromEntries(briefFieldKeys.map((key) => [key, []]));
 
   userTurns.forEach((turn, turnIndex) => {
     splitCandidateStatements(turn.content).forEach((statement, statementIndex) => {
@@ -163,7 +123,7 @@ function extractHeuristicBrief(transcript = '') {
   const fields = {};
   const unresolvedConflicts = [];
 
-  BRIEF_SCHEMA_FIELDS.forEach((key) => {
+  briefFieldKeys.forEach((key) => {
     const values = collected[key] || [];
     if (!values.length) {
       fields[key] = {
@@ -225,7 +185,7 @@ function buildNormalizerPrompt(transcript) {
     JSON.stringify(
       {
         fields: Object.fromEntries(
-          BRIEF_SCHEMA_FIELDS.map((key) => [key, { value: null, confidence: 0, assumptions: [] }])
+          briefFieldKeys.map((key) => [key, { value: null, confidence: 0, assumptions: [] }])
         ),
         unresolvedConflicts: [
           { field: 'objective', reason: 'short explanation', candidates: ['candidate 1', 'candidate 2'] }
@@ -271,8 +231,8 @@ export async function extractBrief({ transcript = '', messages = null, normalize
   const heuristic = extractHeuristicBrief(transcriptText);
 
   const response = {
-    fields: Object.fromEntries(BRIEF_SCHEMA_FIELDS.map((key) => [key, heuristic.fields[key]])),
-    brief: Object.fromEntries(BRIEF_SCHEMA_FIELDS.map((key) => [key, heuristic.fields[key].value])),
+    fields: Object.fromEntries(briefFieldKeys.map((key) => [key, heuristic.fields[key]])),
+    brief: Object.fromEntries(briefFieldKeys.map((key) => [key, heuristic.fields[key].value])),
     unresolvedConflicts: [...heuristic.unresolvedConflicts],
     globalAssumptions: [],
     normalizationMethod: 'heuristic_fallback'
@@ -289,7 +249,7 @@ export async function extractBrief({ transcript = '', messages = null, normalize
       return response;
     }
 
-    BRIEF_SCHEMA_FIELDS.forEach((key) => {
+    briefFieldKeys.forEach((key) => {
       response.fields[key] = mergeField(heuristic.fields[key], parsed?.fields?.[key]);
       response.brief[key] = response.fields[key].value;
     });
@@ -306,4 +266,4 @@ export async function extractBrief({ transcript = '', messages = null, normalize
   }
 }
 
-export { BRIEF_SCHEMA_FIELDS, normalizeHistoryInput };
+export { briefFieldKeys, normalizeHistoryInput };

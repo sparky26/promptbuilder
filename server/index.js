@@ -4,6 +4,7 @@ import express from 'express';
 import { coachingSystemPrompt, finalPromptSystemPrompt } from './prompts.js';
 import { normalizeHistoryInput } from './brief-extractor.js';
 import { buildNormalizedBrief } from './brief-service.js';
+import { requiredStageKeys, stageDefinitions } from './domain/brief-schema.js';
 
 const app = express();
 const port = process.env.PORT || 8787;
@@ -13,83 +14,6 @@ const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
-const STAGE_DEFINITIONS = {
-  objective: {
-    key: 'objective',
-    label: 'Objective',
-    required: true,
-    requiredFields: ['task', 'successOutcome'],
-    doneCriteria:
-      'Complete when the user clearly states what they want the model to do and what a successful result looks like.',
-    followUpQuestion:
-      'What exact outcome do you want, and how will you judge whether the answer is successful?'
-  },
-  audience: {
-    key: 'audience',
-    label: 'Audience',
-    required: true,
-    requiredFields: ['readerOrUser', 'skillLevelOrRole'],
-    doneCriteria:
-      'Complete when the intended audience or end-user is named, including role, expertise level, or context.',
-    followUpQuestion:
-      'Who is the output for (role/experience level), and what do they already know?'
-  },
-  contextData: {
-    key: 'contextData',
-    label: 'Context/Data',
-    required: true,
-    requiredFields: ['background', 'inputsOrSources'],
-    doneCriteria:
-      'Complete when the user provides relevant background, source material, or data the model should use.',
-    followUpQuestion:
-      'What background information, source material, or data should the model use?'
-  },
-  constraints: {
-    key: 'constraints',
-    label: 'Constraints',
-    required: true,
-    requiredFields: ['limits', 'nonGoalsOrBoundaries'],
-    doneCriteria:
-      'Complete when hard constraints are clear (scope, tone, length, boundaries, or forbidden content).',
-    followUpQuestion:
-      'What constraints should I enforce (length, tone, boundaries, must/avoid requirements)?'
-  },
-  outputFormat: {
-    key: 'outputFormat',
-    label: 'Output Format',
-    required: true,
-    requiredFields: ['structure', 'deliveryStyle'],
-    doneCriteria:
-      'Complete when expected output structure is explicit (format, sections, bullets/table/json, etc.).',
-    followUpQuestion:
-      'How should the final answer be formatted (for example: bullets, table, JSON schema, sections)?'
-  },
-  qualityBar: {
-    key: 'qualityBar',
-    label: 'Quality Bar',
-    required: false,
-    requiredFields: ['evaluationCriteria'],
-    doneCriteria:
-      'Complete when measurable quality criteria are provided (accuracy, depth, citations, checklist, edge cases).',
-    followUpQuestion:
-      'What quality bar should the response meet (e.g., depth, accuracy checks, citation style, acceptance criteria)?'
-  },
-  examples: {
-    key: 'examples',
-    label: 'Examples',
-    required: false,
-    requiredFields: ['sampleInputOrOutput'],
-    doneCriteria:
-      'Complete when there is at least one example of desired (or undesired) input/output style.',
-    followUpQuestion:
-      'Do you have an example of a good output (or a bad one to avoid) so I can match style and quality?'
-  }
-};
-
-const REQUIRED_STAGE_KEYS = Object.values(STAGE_DEFINITIONS)
-  .filter((stage) => stage.required)
-  .map((stage) => stage.key);
-
 const MIN_COMPLETENESS_THRESHOLD = 0.72;
 
 function inspectConversationStages(briefExtraction) {
@@ -98,24 +22,28 @@ function inspectConversationStages(briefExtraction) {
     const item = field(key);
     return Boolean(item?.value) && Number(item?.confidence || 0) >= threshold;
   };
+  const evaluateRuleSet = (ruleSet = {}) => {
+    const allOf = Array.isArray(ruleSet.allOf)
+      ? ruleSet.allOf.every((rule) => hasHighConfidence(rule.fieldKey, rule.minConfidence))
+      : true;
 
-  const stageChecks = {
-    objective: hasHighConfidence('objective', 0.45),
-    audience: hasHighConfidence('audience', 0.4),
-    contextData: hasHighConfidence('context', 0.4),
-    constraints: hasHighConfidence('constraints', 0.4) || hasHighConfidence('nonGoals', 0.35),
-    outputFormat: hasHighConfidence('outputFormat', 0.4) || hasHighConfidence('tone', 0.35),
-    qualityBar: hasHighConfidence('acceptanceCriteria', 0.35),
-    examples: hasHighConfidence('examples', 0.35)
+    const anyOf = Array.isArray(ruleSet.anyOf)
+      ? ruleSet.anyOf.some((rule) => hasHighConfidence(rule.fieldKey, rule.minConfidence))
+      : true;
+
+    return allOf && anyOf;
   };
 
-  const stages = Object.values(STAGE_DEFINITIONS).map((definition) => ({
+  const isStageComplete = (stageDefinition) =>
+    (stageDefinition.completionRules || []).some((ruleSet) => evaluateRuleSet(ruleSet));
+
+  const stages = Object.values(stageDefinitions).map((definition) => ({
     ...definition,
-    complete: Boolean(stageChecks[definition.key])
+    complete: isStageComplete(definition)
   }));
 
   const completedRequired = stages.filter((stage) => stage.required && stage.complete).length;
-  const requiredTotal = REQUIRED_STAGE_KEYS.length;
+  const requiredTotal = requiredStageKeys.length;
   const optionalTotal = stages.length - requiredTotal;
   const completedOptional = stages.filter((stage) => !stage.required && stage.complete).length;
 
