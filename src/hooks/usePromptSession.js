@@ -31,7 +31,11 @@ export const usePromptSession = () => {
   const hasFinalPrompt = messages.some(
     (message) => message.role === 'assistant' && message.content.startsWith('## Final Prompt')
   );
-  const canGenerateFinalPrompt = !loading && hasUserInput;
+  const canGenerateByStageProgress =
+    typeof stageProgress?.canGenerateFinalPrompt === 'boolean'
+      ? stageProgress.canGenerateFinalPrompt
+      : hasUserInput;
+  const canGenerateFinalPrompt = !loading && hasUserInput && canGenerateByStageProgress;
 
   const sendMessage = async () => {
     const trimmed = input.trim();
