@@ -3,7 +3,7 @@ import { API_BASE_URL, parseApiError } from '../utils/api';
 import { parseStoredSession, serializeSession, SESSION_STORAGE_KEY } from '../utils/session';
 
 const STARTER_MESSAGE_CONTENT =
-  "Hi! I'm your Prompt Architect. Tell me what you want ChatGPT/Claude to help with, and I'll guide you through goal, context, constraints, and output format before generating a polished final prompt.";
+  "Okay, let's get cracking. Give me as many details as you can and I'll help you structure it";
 
 const toApiMessage = (message) => ({ role: message.role, content: message.content });
 
