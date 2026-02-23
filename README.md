@@ -57,3 +57,21 @@ The app embeds practical prompt-engineering strategies:
 
 - This repo intentionally leaves the API key as a placeholder.
 - You can swap the Groq model in `.env` via `GROQ_MODEL`.
+
+## Deploying to Vercel
+
+This project is configured for a single Vercel deployment that serves:
+
+- the Vite frontend as static assets
+- the Express API as a Serverless Function at `/api/index`
+
+### Steps
+
+1. Import this repo into Vercel.
+2. Add environment variables in Vercel Project Settings:
+   - `GROQ_API_KEY` (required)
+   - `GROQ_MODEL` (optional)
+   - `VITE_API_BASE_URL` (optional; leave empty to use same-origin `/api` routes)
+3. Deploy.
+
+`vercel.json` rewrites `/api/*` to the serverless API and all other paths to `index.html` for SPA routing.
