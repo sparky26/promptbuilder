@@ -19,7 +19,6 @@ export function App() {
     stageProgress,
     transcript,
     buildFinalPrompt,
-    restoreLastSession,
     sendMessage,
     startNewSession
   } = usePromptSession();
@@ -104,9 +103,6 @@ export function App() {
         <div className="sidebar-actions" aria-label="session controls">
           <button className="secondary" onClick={startNewSession} disabled={loading}>
             + New chat
-          </button>
-          <button className="secondary" onClick={restoreLastSession} disabled={loading}>
-            Restore last
           </button>
           <button className="secondary" onClick={exportTranscript} disabled={messages.length < 2}>
             Export transcript
