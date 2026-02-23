@@ -343,6 +343,26 @@ function buildStageDiagnostics(progress) {
   };
 }
 
+function buildStageProgressPayload(progress) {
+  return {
+    minCompletenessThreshold: MIN_COMPLETENESS_THRESHOLD,
+    canGenerateFinalPrompt: progress.canGenerateFinalPrompt,
+    requiredCompleteness: Number(progress.requiredCompleteness.toFixed(3)),
+    overallCompleteness: Number(progress.overallCompleteness.toFixed(3)),
+    completedRequired: progress.completedRequired,
+    requiredTotal: progress.requiredTotal,
+    missingRequiredStageKeys: progress.missingRequiredStageKeys,
+    stages: progress.stages.map((stage) => ({
+      key: stage.key,
+      label: stage.label,
+      required: stage.required,
+      requiredFields: stage.requiredFields,
+      doneCriteria: stage.doneCriteria,
+      complete: stage.complete
+    }))
+  };
+}
+
 async function callGroq(messages) {
   if (!groqApiKey) {
     throw new Error('Missing GROQ_API_KEY. Add it to .env file.');
@@ -396,23 +416,7 @@ app.post('/api/chat', async (req, res) => {
 
     res.json({
       reply,
-      stageProgress: {
-        minCompletenessThreshold: MIN_COMPLETENESS_THRESHOLD,
-        canGenerateFinalPrompt: progress.canGenerateFinalPrompt,
-        requiredCompleteness: Number(progress.requiredCompleteness.toFixed(3)),
-        overallCompleteness: Number(progress.overallCompleteness.toFixed(3)),
-        completedRequired: progress.completedRequired,
-        requiredTotal: progress.requiredTotal,
-        missingRequiredStageKeys: progress.missingRequiredStageKeys,
-        stages: progress.stages.map((stage) => ({
-          key: stage.key,
-          label: stage.label,
-          required: stage.required,
-          requiredFields: stage.requiredFields,
-          doneCriteria: stage.doneCriteria,
-          complete: stage.complete
-        }))
-      }
+      stageProgress: buildStageProgressPayload(progress)
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -421,59 +425,80 @@ app.post('/api/chat', async (req, res) => {
 
 app.post('/api/generate-prompt', async (req, res) => {
   try {
-    const transcript = normalizeContent(req.body.transcript || '');
-    const messagesForInspection = req.body.messages || [
-      {
-        role: 'user',
-        content: transcript
-      }
-    ];
-    const progress = inspectConversationStages(messagesForInspection);
+    const { transcript = '', messages = null } = req.body || {};
 
-    if (!progress.canGenerateFinalPrompt) {
+    const transcriptText = String(transcript || '').trim();
+    const safeMessages = Array.isArray(messages) ? messages : null;
+    const hasMessageObjects =
+      safeMessages &&
+      safeMessages.every(
+        (message) =>
+          message &&
+          typeof message === 'object' &&
+          typeof message.role === 'string' &&
+          typeof message.content === 'string'
+      );
+
+    if (safeMessages && !hasMessageObjects) {
       return res.status(400).json({
-        error:
-          'Not enough information to generate a final prompt yet. Fill in more required stages first.',
-        stageProgress: {
-          minCompletenessThreshold: MIN_COMPLETENESS_THRESHOLD,
-          canGenerateFinalPrompt: false,
-          requiredCompleteness: Number(progress.requiredCompleteness.toFixed(3)),
-          overallCompleteness: Number(progress.overallCompleteness.toFixed(3)),
-          missingRequiredStageKeys: progress.missingRequiredStageKeys,
-          stages: progress.stages.map((stage) => ({
-            key: stage.key,
-            label: stage.label,
-            required: stage.required,
-            requiredFields: stage.requiredFields,
-            doneCriteria: stage.doneCriteria,
-            complete: stage.complete
-          }))
-        }
+        error: 'Invalid payload: "messages" must be an array of { role, content } objects.'
       });
     }
 
-    const briefExtraction = extractBriefFromTranscript(req.body.transcript || '');
+    const messagesForInspection = hasMessageObjects
+      ? safeMessages
+      : transcriptText
+        ? [{ role: 'user', content: transcriptText }]
+        : [];
 
-    const messages = [
+    const hasBasicIntent = messagesForInspection.some(
+      (message) => message.role === 'user' && String(message.content || '').trim().length > 0
+    );
+
+    if (!hasBasicIntent) {
+      return res.status(400).json({
+        error:
+          'Invalid payload: provide at least one non-empty user message in "messages" or "transcript".',
+        stageProgress: null
+      });
+    }
+
+    const progress = inspectConversationStages(messagesForInspection);
+
+    const transcriptForBrief =
+      transcriptText ||
+      messagesForInspection
+        .map((message) => `${message.role}: ${message.content}`)
+        .join('\n');
+    const briefExtraction = extractBriefFromTranscript(transcriptForBrief);
+    const stageDiagnostics = buildStageDiagnostics(progress);
+
+    const generationMessages = [
       { role: 'system', content: finalPromptSystemPrompt },
       {
         role: 'user',
-        content: `Normalized brief JSON:\n${JSON.stringify(briefExtraction.brief, null, 2)}\n\nUnresolved conflicts:\n${JSON.stringify(briefExtraction.unresolvedConflicts, null, 2)}`
+        content: [
+          'Build the best possible prompt from this partial or complete brief.',
+          'Always provide a usable prompt draft even if some fields are missing.',
+          'Include an "Assumptions" section that fills gaps using reasonable defaults.',
+          'If helpful, include an optional "Questions to refine further" section with concise follow-ups.',
+          '',
+          `Stage diagnostics:\n${JSON.stringify(stageDiagnostics, null, 2)}`,
+          '',
+          `Normalized brief JSON:\n${JSON.stringify(briefExtraction.brief, null, 2)}`,
+          '',
+          `Unresolved conflicts:\n${JSON.stringify(briefExtraction.unresolvedConflicts, null, 2)}`
+        ].join('\n')
       }
     ];
-    const prompt = await callGroq(messages);
+    const prompt = await callGroq(generationMessages);
     return res.json({
       brief: {
         ...briefExtraction.brief,
         unresolvedConflicts: briefExtraction.unresolvedConflicts
       },
       prompt,
-      stageProgress: {
-        minCompletenessThreshold: MIN_COMPLETENESS_THRESHOLD,
-        canGenerateFinalPrompt: true,
-        requiredCompleteness: Number(progress.requiredCompleteness.toFixed(3)),
-        overallCompleteness: Number(progress.overallCompleteness.toFixed(3))
-      }
+      stageProgress: buildStageProgressPayload(progress)
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
