@@ -79,52 +79,127 @@ function extractUserTurnsFromTranscript(transcript = '') {
   return turns;
 }
 
-function detectField(statement) {
-  const normalized = normalizeContent(statement);
-  const explicitMatch = normalized.match(/^(.+?)\s*:\s*(.+)$/i);
+function segmentTurns(transcript = '') {
+  return extractUserTurnsFromTranscript(transcript).filter((turn) => turn.role === 'user');
+}
+
+function extractCandidatesFromTurns(turns = []) {
+  return turns.flatMap((turn, turnIndex) =>
+    splitCandidateStatements(turn.content).map((statement, statementIndex) => ({
+      statement,
+      turnIndex,
+      statementIndex,
+      normalized: normalizeContent(statement)
+    }))
+  );
+}
+
+function detectImplicitField(statement, normalized) {
+  if (/\bfor\s+(?:new|first[-\s]?time|beginner|beginners|executives?|managers?|students?|engineers?|admins?|leaders?|teams?|customers?|users?)\b/.test(normalized)) {
+    return { key: 'audience', explicit: false, value: statement.trim(), implicit: true };
+  }
+
+  if (/\b(based on|using|from|given)\b/.test(normalized) && /\b(data|doc|docs|document|documents|transcript|report|notes?|dataset|source|background|input)\b/.test(normalized)) {
+    return { key: 'context', explicit: false, value: statement.trim(), implicit: true };
+  }
+
+  return null;
+}
+
+function detectField(statement, normalized = normalizeContent(statement)) {
+  const explicitMatch = statement.match(/^(.+?)\s*:\s*(.+)$/i);
 
   if (explicitMatch) {
     const explicitKey = explicitMatch[1].toLowerCase().trim();
     return {
       key: explicitBriefFieldAliasMap[explicitKey] || null,
       value: explicitMatch[2].trim(),
-      explicit: Boolean(explicitBriefFieldAliasMap[explicitKey])
+      explicit: Boolean(explicitBriefFieldAliasMap[explicitKey]),
+      implicit: false
     };
+  }
+
+  if (/\bnon[-\s]?goals?\b|\bout of scope\b/.test(normalized)) {
+    return { key: 'nonGoals', value: statement.trim(), explicit: false, implicit: false };
+  }
+
+  if (/\bconstraints?\b|\bno limits?\b/.test(normalized)) {
+    return { key: 'constraints', value: statement.trim(), explicit: false, implicit: false };
   }
 
   for (const key of briefFieldKeys) {
     if (hasAny(normalized, briefFieldPatterns[key])) {
-      return { key, value: statement.trim(), explicit: false };
+      const implicitHint =
+        (key === 'audience' || key === 'context') &&
+        Boolean(detectImplicitField(statement, normalized)?.key === key);
+      return { key, value: statement.trim(), explicit: false, implicit: implicitHint };
     }
   }
 
-  return { key: null, value: null, explicit: false };
+  return detectImplicitField(statement, normalized) || { key: null, value: null, explicit: false, implicit: false };
 }
 
-function extractHeuristicBrief(transcript = '') {
-  const turns = extractUserTurnsFromTranscript(transcript);
-  const userTurns = turns.filter((turn) => turn.role === 'user');
-  const collected = Object.fromEntries(briefFieldKeys.map((key) => [key, []]));
+function detectFieldNegation(fieldKey, normalizedStatement) {
+  if (fieldKey === 'constraints') {
+    return /\b(no|without|not)\s+(hard\s+)?constraints?\b/.test(normalizedStatement) || /\bno limits?\b/.test(normalizedStatement);
+  }
 
-  userTurns.forEach((turn, turnIndex) => {
-    splitCandidateStatements(turn.content).forEach((statement, statementIndex) => {
-      const { key, value, explicit } = detectField(statement);
-      if (!key || !value) return;
-      collected[key].push({
-        value,
-        turnIndex,
-        statementIndex,
-        explicit,
-        normalized: normalizeContent(value)
-      });
+  if (fieldKey === 'nonGoals') {
+    return /\b(no|without|not)\s+non[-\s]?goals?\b/.test(normalizedStatement) || /\bnothing\s+is\s+out\s+of\s+scope\b/.test(normalizedStatement);
+  }
+
+  return false;
+}
+
+function classifyFieldCandidates(candidates = []) {
+  const byField = Object.fromEntries(briefFieldKeys.map((key) => [key, []]));
+
+  candidates.forEach((candidate) => {
+    const detection = detectField(candidate.statement, candidate.normalized);
+    if (!detection.key || !detection.value) return;
+
+    byField[detection.key].push({
+      ...candidate,
+      key: detection.key,
+      value: detection.value,
+      explicit: detection.explicit,
+      implicit: detection.implicit,
+      negated: detectFieldNegation(detection.key, candidate.normalized),
+      normalizedValue: normalizeContent(detection.value)
     });
   });
 
+  return byField;
+}
+
+function clampConfidence(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+const fieldConfidenceCalibrators = {
+  objective: ({ selected, hasConflict }) => clampConfidence((selected.explicit ? 0.82 : 0.6) - (hasConflict ? 0.16 : 0)),
+  audience: ({ selected, hasConflict }) =>
+    clampConfidence((selected.explicit ? 0.78 : selected.implicit ? 0.58 : 0.5) - (hasConflict ? 0.14 : 0)),
+  context: ({ selected, hasConflict }) =>
+    clampConfidence((selected.explicit ? 0.76 : selected.implicit ? 0.56 : 0.48) - (hasConflict ? 0.14 : 0)),
+  constraints: ({ selected, hasConflict }) =>
+    clampConfidence((selected.explicit ? 0.8 : 0.63) - (selected.negated ? 0.08 : 0) - (hasConflict ? 0.12 : 0)),
+  nonGoals: ({ selected, hasConflict }) =>
+    clampConfidence((selected.explicit ? 0.78 : 0.62) - (selected.negated ? 0.08 : 0) - (hasConflict ? 0.12 : 0)),
+  outputFormat: ({ selected, hasConflict }) => clampConfidence((selected.explicit ? 0.8 : 0.55) - (hasConflict ? 0.12 : 0)),
+  tone: ({ selected, hasConflict }) => clampConfidence((selected.explicit ? 0.72 : 0.5) - (hasConflict ? 0.12 : 0)),
+  examples: ({ selected, hasConflict }) => clampConfidence((selected.explicit ? 0.74 : 0.5) - (hasConflict ? 0.12 : 0)),
+  acceptanceCriteria: ({ selected, hasConflict }) =>
+    clampConfidence((selected.explicit ? 0.75 : 0.52) - (hasConflict ? 0.12 : 0))
+};
+
+function resolveFieldConflicts(classifiedByField = {}) {
   const fields = {};
   const unresolvedConflicts = [];
 
   briefFieldKeys.forEach((key) => {
-    const values = collected[key] || [];
+    const values = classifiedByField[key] || [];
+
     if (!values.length) {
       fields[key] = {
         value: null,
@@ -136,27 +211,52 @@ function extractHeuristicBrief(transcript = '') {
     }
 
     const selected = values[values.length - 1];
-    const uniqueValues = [...new Set(values.map((entry) => entry.normalized))];
-    const sameTurnValues = values.filter((entry) => entry.turnIndex === selected.turnIndex);
+    const hasPolarityConflict = values.some((entry) => entry.negated !== selected.negated);
+    const uniqueValues = [...new Set(values.filter((entry) => !entry.negated).map((entry) => entry.normalizedValue))];
+    const hasValueConflict = uniqueValues.length > 1;
+    const hasConflict = hasPolarityConflict || hasValueConflict;
 
-    fields[key] = {
-      value: selected.value,
-      confidence: selected.explicit ? 0.72 : 0.48,
-      source: 'heuristic',
-      assumptions: selected.explicit ? [] : ['Inferred from nearby phrasing using heuristic pattern matching.']
-    };
+    if (selected.negated && (key === 'constraints' || key === 'nonGoals')) {
+      fields[key] = {
+        value: null,
+        confidence: fieldConfidenceCalibrators[key]({ selected, hasConflict }),
+        source: 'heuristic',
+        assumptions: ['Latest user turn explicitly negates this field.']
+      };
+    } else {
+      const assumptions = [];
+      if (!selected.explicit) {
+        assumptions.push(selected.implicit ? 'Inferred from implicit phrasing in user statements.' : 'Inferred from nearby phrasing using heuristic pattern matching.');
+      }
 
-    if (uniqueValues.length > 1 && sameTurnValues.length > 1) {
+      fields[key] = {
+        value: selected.value,
+        confidence: fieldConfidenceCalibrators[key]({ selected, hasConflict }),
+        source: 'heuristic',
+        assumptions
+      };
+    }
+
+    if (hasConflict) {
       unresolvedConflicts.push({
         field: key,
-        selectedValue: selected.value,
-        reason: 'Multiple competing values in the latest user turn.',
-        candidates: sameTurnValues.map((entry) => entry.value)
+        selectedValue: fields[key].value,
+        reason: hasPolarityConflict
+          ? 'Contradictory statements across turns (affirmed vs negated). Latest user statement was prioritized.'
+          : 'Multiple competing values observed across turns. Latest user statement was prioritized.',
+        candidates: values.map((entry) => entry.value)
       });
     }
   });
 
   return { fields, unresolvedConflicts };
+}
+
+function extractHeuristicBrief(transcript = '') {
+  const turns = segmentTurns(transcript);
+  const candidates = extractCandidatesFromTurns(turns);
+  const classified = classifyFieldCandidates(candidates);
+  return resolveFieldConflicts(classified);
 }
 
 function stripJsonCodeFence(text = '') {
