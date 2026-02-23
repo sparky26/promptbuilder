@@ -15,7 +15,10 @@ const renderInlineMarkdown = (text) => {
     .replace(/`([^`]+?)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    .replace(
+      /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
+    );
 };
 
 const markdownToSafeHtml = (markdown) => {
@@ -112,10 +115,7 @@ const markdownToSafeHtml = (markdown) => {
   return html;
 };
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787').replace(
-  /\/$/,
-  ''
-);
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787').replace(/\/$/, '');
 
 const STARTER_MESSAGE = {
   role: 'assistant',
@@ -217,6 +217,9 @@ export function App() {
       missingStageLabels
     };
   }, [stageProgress]);
+
+  const canGenerateFinalPrompt =
+    !loading && finalPromptReadiness.canGenerateByStageProgress && messages.length >= 3;
 
   const sendMessage = async () => {
     const trimmed = input.trim();
@@ -350,131 +353,121 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <header>
-        <h1>Prompt Builder Agent</h1>
-        <p>
-          Conversationally shape your idea, then generate a detailed, reusable prompt for ChatGPT or
-          Claude.
-        </p>
-      </header>
+      <aside className="sidebar">
+        <div>
+          <p className="sidebar-eyebrow">Prompt Builder</p>
+          <h1>Prompt Architect</h1>
+          <p className="sidebar-copy">
+            ChatGPT-inspired workspace to shape requirements and generate a polished final prompt.
+          </p>
+        </div>
 
-      <section className="chat-window" ref={chatWindowRef}>
-        {messages.map((message, index) => (
-          <article key={`${message.role}-${index}`} className={`bubble ${message.role}`}>
-            <strong>{message.role === 'assistant' ? 'Architect' : 'You'}</strong>
-            {message.role === 'assistant' ? (
-              <div
-                className="assistant-markdown"
-                dangerouslySetInnerHTML={{ __html: markdownToSafeHtml(message.content) }}
-              />
-            ) : (
-              <p className="user-content">{message.content}</p>
-            )}
-          </article>
-        ))}
-        {loading ? (
-          <article className="bubble assistant" aria-live="polite" aria-label="assistant is thinking">
-            <strong>Architect</strong>
-            <p className="user-content">Thinking…</p>
-          </article>
-        ) : null}
-      </section>
-
-      {error ? <p className="error">{error}</p> : null}
-
-      <section className="session-actions" aria-label="session controls">
-        <button className="secondary" onClick={startNewSession} disabled={loading}>
-          New Session
-        </button>
-        <button className="secondary" onClick={restoreLastSession} disabled={loading}>
-          Restore Last Session
-        </button>
-        <button className="secondary" onClick={exportTranscript} disabled={messages.length < 2}>
-          Export Prompt/Transcript
-        </button>
-        {lastSavedAt ? <p className="save-meta">Saved {new Date(lastSavedAt).toLocaleString()}</p> : null}
-      </section>
-
-      {Array.isArray(stageProgress?.stages) && stageProgress.stages.length ? (
-        <section className="progress-panel" aria-label="stage progress">
-          {(() => {
-            const requiredStages = stageProgress.stages.filter(
-              (stage) => stage.isRequired ?? stage.required
-            );
-            const completedRequiredCount = requiredStages.filter(
-              (stage) => stage.isComplete ?? stage.complete
-            ).length;
-            const missingRequiredStages = requiredStages.filter(
-              (stage) => !(stage.isComplete ?? stage.complete)
-            );
-
-            return (
-              <>
-                <p>
-                  {completedRequiredCount}/{requiredStages.length} required stages complete
-                </p>
-                <div>
-                  {stageProgress.stages.map((stage, index) => {
-                    const isComplete = stage.isComplete ?? stage.complete;
-                    const label = stage.label || stage.name || `Stage ${index + 1}`;
-
-                    return (
-                      <p
-                        key={`${label}-${index}`}
-                        className={`progress-item ${isComplete ? 'is-complete' : 'is-missing'}`}
-                      >
-                        <span aria-hidden="true">{isComplete ? '●' : '○'}</span> {label}
-                      </p>
-                    );
-                  })}
-                </div>
-                {missingRequiredStages.length ? (
-                  <p className="is-missing">
-                    Missing required: {missingRequiredStages.map((stage) => stage.label || stage.name).join(', ')}
-                  </p>
-                ) : null}
-              </>
-            );
-          })()}
-        </section>
-      ) : null}
-
-      <section className="composer">
-        <textarea
-          rows={3}
-          placeholder="Describe your task, audience, and desired outcome..."
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              sendMessage();
-            }
-          }}
-        />
-        <div className="actions">
-          <button onClick={sendMessage} disabled={loading || !input.trim()}>
-            {loading ? 'Thinking…' : 'Send'}
+        <div className="sidebar-actions" aria-label="session controls">
+          <button className="secondary" onClick={startNewSession} disabled={loading}>
+            + New chat
           </button>
-          <button
-            onClick={buildFinalPrompt}
-            disabled={
-              loading ||
-              !finalPromptReadiness.canGenerateByStageProgress ||
-              messages.length < 3
-            }
-          >
+          <button className="secondary" onClick={restoreLastSession} disabled={loading}>
+            Restore last
+          </button>
+          <button className="secondary" onClick={exportTranscript} disabled={messages.length < 2}>
+            Export transcript
+          </button>
+          {lastSavedAt ? (
+            <p className="save-meta">Last auto-save: {new Date(lastSavedAt).toLocaleString()}</p>
+          ) : null}
+        </div>
+      </aside>
+
+      <section className="chat-layout">
+        <header className="chat-header">
+          <div>
+            <h2>Prompt Architecture Session</h2>
+            <p>{messages.length} messages in this conversation</p>
+          </div>
+          <button onClick={buildFinalPrompt} disabled={!canGenerateFinalPrompt}>
             Generate Final Prompt
           </button>
-        </div>
-        {!finalPromptReadiness.canGenerateByStageProgress ? (
-          <p className="is-missing">
-            Complete missing required fields first
-            {finalPromptReadiness.missingStageLabels.length
-              ? `: ${finalPromptReadiness.missingStageLabels.join(', ')}`
-              : ''}
-          </p>
+        </header>
+
+        <section className="chat-window" ref={chatWindowRef}>
+          {messages.map((message, index) => (
+            <article key={`${message.role}-${index}`} className={`message-row ${message.role}`}>
+              <span className="avatar" aria-hidden="true">
+                {message.role === 'assistant' ? 'AI' : 'You'}
+              </span>
+              <div className={`bubble ${message.role}`}>
+                {message.role === 'assistant' ? (
+                  <div
+                    className="assistant-markdown"
+                    dangerouslySetInnerHTML={{ __html: markdownToSafeHtml(message.content) }}
+                  />
+                ) : (
+                  <p className="user-content">{message.content}</p>
+                )}
+              </div>
+            </article>
+          ))}
+          {loading ? (
+            <article className="message-row assistant" aria-live="polite" aria-label="assistant is thinking">
+              <span className="avatar" aria-hidden="true">
+                AI
+              </span>
+              <div className="bubble assistant">
+                <p className="user-content">Thinking…</p>
+              </div>
+            </article>
+          ) : null}
+        </section>
+
+        {Array.isArray(stageProgress?.stages) && stageProgress.stages.length ? (
+          <section className="progress-panel" aria-label="stage progress">
+            <p className="progress-heading">Progress checklist</p>
+            <div className="progress-grid">
+              {stageProgress.stages.map((stage, index) => {
+                const isComplete = stage.isComplete ?? stage.complete;
+                const label = stage.label || stage.name || `Stage ${index + 1}`;
+
+                return (
+                  <p key={`${label}-${index}`} className={`progress-item ${isComplete ? 'is-complete' : 'is-missing'}`}>
+                    <span aria-hidden="true">{isComplete ? '●' : '○'}</span> {label}
+                  </p>
+                );
+              })}
+            </div>
+          </section>
         ) : null}
+
+        {error ? <p className="error">{error}</p> : null}
+
+        <section className="composer">
+          <textarea
+            rows={3}
+            placeholder="Message Prompt Architect..."
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+              }
+            }}
+          />
+          <div className="composer-actions">
+            {!finalPromptReadiness.canGenerateByStageProgress ? (
+              <p className="hint">
+                Missing required fields
+                {finalPromptReadiness.missingStageLabels.length
+                  ? `: ${finalPromptReadiness.missingStageLabels.join(', ')}`
+                  : ''}
+              </p>
+            ) : (
+              <p className="hint is-complete">Ready to generate final prompt.</p>
+            )}
+            <button onClick={sendMessage} disabled={loading || !input.trim()}>
+              {loading ? 'Thinking…' : 'Send'}
+            </button>
+          </div>
+        </section>
       </section>
     </main>
   );
