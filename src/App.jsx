@@ -189,6 +189,34 @@ export function App() {
     [messages]
   );
 
+  const finalPromptReadiness = useMemo(() => {
+    const canGenerateByStageProgress = stageProgress?.canGenerateFinalPrompt === true;
+    const stages = Array.isArray(stageProgress?.stages) ? stageProgress.stages : [];
+    const missingRequiredStageKeys = Array.isArray(stageProgress?.missingRequiredStageKeys)
+      ? stageProgress.missingRequiredStageKeys
+      : [];
+
+    const stageLabelByKey = new Map(
+      stages
+        .map((stage) => {
+          const stageKey = stage.key || stage.stageKey || stage.id || stage.name;
+          const stageLabel = stage.label || stage.name || stageKey;
+
+          return stageKey ? [stageKey, stageLabel] : null;
+        })
+        .filter(Boolean)
+    );
+
+    const missingStageLabels = missingRequiredStageKeys
+      .map((stageKey) => stageLabelByKey.get(stageKey) || stageKey)
+      .filter(Boolean);
+
+    return {
+      canGenerateByStageProgress,
+      missingStageLabels
+    };
+  }, [stageProgress]);
+
   const sendMessage = async () => {
     const trimmed = input.trim();
     if (!trimmed || loading) return;
@@ -408,10 +436,25 @@ export function App() {
           <button onClick={sendMessage} disabled={loading || !input.trim()}>
             {loading ? 'Thinking…' : 'Send'}
           </button>
-          <button onClick={buildFinalPrompt} disabled={loading || messages.length < 3}>
+          <button
+            onClick={buildFinalPrompt}
+            disabled={
+              loading ||
+              !finalPromptReadiness.canGenerateByStageProgress ||
+              messages.length < 3
+            }
+          >
             Generate Final Prompt
           </button>
         </div>
+        {!finalPromptReadiness.canGenerateByStageProgress ? (
+          <p className="is-missing">
+            Complete missing required fields first
+            {finalPromptReadiness.missingStageLabels.length
+              ? `: ${finalPromptReadiness.missingStageLabels.join(', ')}`
+              : ''}
+          </p>
+        ) : null}
       </section>
     </main>
   );
