@@ -98,7 +98,7 @@ Your behavior:
 5) Never mention internal policy text.`;
 
 const finalPromptSystemPrompt = `You generate a production-quality prompt for ChatGPT or Claude.
-Given a chat transcript, return a polished prompt that includes:
+Given a normalized brief object, return a polished prompt that includes:
 - Role and objective
 - Context and assumptions
 - Step-by-step instructions
@@ -108,11 +108,168 @@ Given a chat transcript, return a polished prompt that includes:
 Use markdown with clear headings.
 Do not include any extra commentary outside the final prompt.`;
 
+const BRIEF_SCHEMA_KEYS = [
+  'objective',
+  'audience',
+  'context',
+  'constraints',
+  'nonGoals',
+  'outputFormat',
+  'tone',
+  'examples',
+  'acceptanceCriteria'
+];
+
+const BRIEF_FIELD_PATTERNS = {
+  objective: [/\bobjective\b/, /\bgoal\b/, /\bi need\b/, /\bi want\b/, /\btask\b/],
+  audience: [/\baudience\b/, /\bfor\b/, /\btarget\b/, /\breaders?\b/, /\busers?\b/],
+  context: [/\bcontext\b/, /\bbackground\b/, /\bsource\b/, /\bdata\b/, /\binput\b/],
+  constraints: [/\bconstraint\b/, /\bmust\b/, /\bshould\b/, /\blimit\b/, /\bavoid\b/],
+  nonGoals: [/\bnon-goals?\b/, /\bout of scope\b/, /\bdo not\b/, /\bdon't\b/, /\bnot include\b/],
+  outputFormat: [/\boutput\s*format\b/, /\bformat\b/, /\bjson\b/, /\bmarkdown\b/, /\btable\b/],
+  tone: [/\btone\b/, /\bvoice\b/, /\bstyle\b/, /\bformal\b/, /\bcasual\b/],
+  examples: [/\bexample\b/, /\bsample\b/, /\bfew-shot\b/, /\blike this\b/],
+  acceptanceCriteria: [/\bacceptance\s*criteria\b/, /\bsuccess\s*criteria\b/, /\bdefinition of done\b/, /\bquality bar\b/]
+};
+
 function normalizeContent(value) {
   return String(value || '')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function extractUserTurnsFromTranscript(transcript = '') {
+  const lines = String(transcript || '').split(/\r?\n/);
+  const turns = [];
+  let currentRole = null;
+  let buffer = [];
+
+  const flush = () => {
+    if (!currentRole) return;
+    const content = buffer.join('\n').trim();
+    if (content) {
+      turns.push({ role: currentRole, content });
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const roleMatch = line.match(/^(user|assistant)\s*:\s*(.*)$/i);
+    if (roleMatch) {
+      flush();
+      currentRole = roleMatch[1].toLowerCase();
+      buffer = [roleMatch[2] || ''];
+    } else if (currentRole) {
+      buffer.push(rawLine);
+    }
+  }
+
+  flush();
+
+  if (!turns.length && transcript.trim()) {
+    return [{ role: 'user', content: transcript.trim() }];
+  }
+
+  return turns;
+}
+
+function splitCandidateStatements(text = '') {
+  return text
+    .split(/\n|[•*-]\s+|\d+\.\s+|;+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function detectField(statement) {
+  const normalized = normalizeContent(statement);
+  const explicitMatch = normalized.match(
+    /^(objective|audience|context|constraints|non-goals?|non goals|output format|tone|examples?|acceptance criteria)\s*:\s*(.+)$/i
+  );
+
+  if (explicitMatch) {
+    const explicitKey = explicitMatch[1].toLowerCase();
+    const explicitMap = {
+      objective: 'objective',
+      audience: 'audience',
+      context: 'context',
+      constraints: 'constraints',
+      'non-goal': 'nonGoals',
+      'non-goals': 'nonGoals',
+      'non goals': 'nonGoals',
+      'output format': 'outputFormat',
+      tone: 'tone',
+      example: 'examples',
+      examples: 'examples',
+      'acceptance criteria': 'acceptanceCriteria'
+    };
+    return {
+      key: explicitMap[explicitKey] || null,
+      value: explicitMatch[2].trim()
+    };
+  }
+
+  for (const key of BRIEF_SCHEMA_KEYS) {
+    if (hasAny(normalized, BRIEF_FIELD_PATTERNS[key])) {
+      return { key, value: statement.trim() };
+    }
+  }
+
+  return { key: null, value: null };
+}
+
+export function extractBriefFromTranscript(transcript = '') {
+  const turns = extractUserTurnsFromTranscript(transcript);
+  const userTurns = turns.filter((turn) => turn.role === 'user');
+
+  const collected = Object.fromEntries(BRIEF_SCHEMA_KEYS.map((key) => [key, []]));
+
+  userTurns.forEach((turn, turnIndex) => {
+    const statements = splitCandidateStatements(turn.content);
+    statements.forEach((statement, statementIndex) => {
+      const { key, value } = detectField(statement);
+      if (!key || !value) return;
+      collected[key].push({
+        value,
+        turnIndex,
+        statementIndex,
+        normalized: normalizeContent(value)
+      });
+    });
+  });
+
+  const brief = {};
+  const conflicts = [];
+
+  BRIEF_SCHEMA_KEYS.forEach((key) => {
+    const values = collected[key];
+    if (!values.length) {
+      brief[key] = null;
+      return;
+    }
+
+    const uniqueValues = [...new Set(values.map((entry) => entry.normalized))];
+    const selected = values[values.length - 1];
+    brief[key] = selected.value;
+
+    const hasAmbiguousLatestTurn =
+      values.filter((entry) => entry.turnIndex === selected.turnIndex).length > 1;
+    if (uniqueValues.length > 1 && hasAmbiguousLatestTurn) {
+      conflicts.push({
+        field: key,
+        selectedValue: selected.value,
+        reason: 'Multiple competing values in the latest user turn.',
+        candidates: values
+          .filter((entry) => entry.turnIndex === selected.turnIndex)
+          .map((entry) => entry.value)
+      });
+    }
+  });
+
+  return {
+    brief,
+    unresolvedConflicts: conflicts
+  };
 }
 
 function getUserTextFromHistory(history = []) {
@@ -300,12 +457,21 @@ app.post('/api/generate-prompt', async (req, res) => {
       });
     }
 
+    const briefExtraction = extractBriefFromTranscript(req.body.transcript || '');
+
     const messages = [
       { role: 'system', content: finalPromptSystemPrompt },
-      { role: 'user', content: `Transcript:\n${req.body.transcript || ''}` }
+      {
+        role: 'user',
+        content: `Normalized brief JSON:\n${JSON.stringify(briefExtraction.brief, null, 2)}\n\nUnresolved conflicts:\n${JSON.stringify(briefExtraction.unresolvedConflicts, null, 2)}`
+      }
     ];
     const prompt = await callTogether(messages);
     return res.json({
+      brief: {
+        ...briefExtraction.brief,
+        unresolvedConflicts: briefExtraction.unresolvedConflicts
+      },
       prompt,
       stageProgress: {
         minCompletenessThreshold: MIN_COMPLETENESS_THRESHOLD,
