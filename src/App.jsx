@@ -179,6 +179,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [stageProgress, setStageProgress] = useState(null);
 
   const transcript = useMemo(
     () =>
@@ -212,6 +213,7 @@ export function App() {
 
       const payload = await response.json();
       setMessages((prev) => [...prev, { role: 'assistant', content: payload.reply }]);
+      setStageProgress(payload.stageProgress || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -232,6 +234,7 @@ export function App() {
     setMessages([STARTER_MESSAGE]);
     setInput('');
     setError('');
+    setStageProgress(null);
   };
 
   const restoreLastSession = () => {
@@ -247,6 +250,7 @@ export function App() {
     setMessages(stored.messages);
     setError('');
     setLastSavedAt(stored.savedAt);
+    setStageProgress(null);
   };
 
   const exportTranscript = () => {
@@ -294,6 +298,7 @@ export function App() {
           content: `## Final Prompt\n\n${payload.prompt}`
         }
       ]);
+      setStageProgress(payload.stageProgress || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -341,6 +346,50 @@ export function App() {
         </button>
         {lastSavedAt ? <p className="save-meta">Saved {new Date(lastSavedAt).toLocaleString()}</p> : null}
       </section>
+
+      {Array.isArray(stageProgress?.stages) && stageProgress.stages.length ? (
+        <section className="progress-panel" aria-label="stage progress">
+          {(() => {
+            const requiredStages = stageProgress.stages.filter(
+              (stage) => stage.isRequired ?? stage.required
+            );
+            const completedRequiredCount = requiredStages.filter(
+              (stage) => stage.isComplete ?? stage.complete
+            ).length;
+            const missingRequiredStages = requiredStages.filter(
+              (stage) => !(stage.isComplete ?? stage.complete)
+            );
+
+            return (
+              <>
+                <p>
+                  {completedRequiredCount}/{requiredStages.length} required stages complete
+                </p>
+                <div>
+                  {stageProgress.stages.map((stage, index) => {
+                    const isComplete = stage.isComplete ?? stage.complete;
+                    const label = stage.label || stage.name || `Stage ${index + 1}`;
+
+                    return (
+                      <p
+                        key={`${label}-${index}`}
+                        className={`progress-item ${isComplete ? 'is-complete' : 'is-missing'}`}
+                      >
+                        <span aria-hidden="true">{isComplete ? '●' : '○'}</span> {label}
+                      </p>
+                    );
+                  })}
+                </div>
+                {missingRequiredStages.length ? (
+                  <p className="is-missing">
+                    Missing required: {missingRequiredStages.map((stage) => stage.label || stage.name).join(', ')}
+                  </p>
+                ) : null}
+              </>
+            );
+          })()}
+        </section>
+      ) : null}
 
       <section className="composer">
         <textarea
