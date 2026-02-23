@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { usePromptSession } from './hooks/usePromptSession';
-import { markdownToSafeHtml } from './utils/markdown';
+import { AssistantMarkdown } from './utils/markdown';
 
 export function App() {
   const {
@@ -132,10 +132,7 @@ export function App() {
               </span>
               <div className={`bubble ${message.role}`}>
                 {message.role === 'assistant' ? (
-                  <div
-                    className="assistant-markdown"
-                    dangerouslySetInnerHTML={{ __html: markdownToSafeHtml(message.content) }}
-                  />
+                  <AssistantMarkdown content={message.content} />
                 ) : (
                   <p className="user-content">{message.content}</p>
                 )}
