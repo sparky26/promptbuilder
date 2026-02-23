@@ -2,7 +2,8 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { coachingSystemPrompt, finalPromptSystemPrompt } from './prompts.js';
-import { extractBrief, normalizeHistoryInput } from './brief-extractor.js';
+import { normalizeHistoryInput } from './brief-extractor.js';
+import { buildNormalizedBrief } from './brief-service.js';
 
 const app = express();
 const port = process.env.PORT || 8787;
@@ -201,17 +202,9 @@ async function callGroq(messages) {
 app.post('/api/chat', async (req, res) => {
   try {
     const incoming = req.body.messages || [];
-    const briefExtraction = await extractBrief({
+    const { briefExtraction } = await buildNormalizedBrief({
       messages: incoming,
-      normalizeWithModel: (normalizerPrompt) =>
-        callGroq([
-          {
-            role: 'system',
-            content:
-              'You normalize conversation history into concise structured brief JSON for downstream prompt generation. Return JSON only.'
-          },
-          { role: 'user', content: normalizerPrompt }
-        ])
+      callModel: callGroq
     });
     const progress = inspectConversationStages(briefExtraction);
     const stageDiagnostics = buildStageDiagnostics(progress);
@@ -271,18 +264,10 @@ app.post('/api/generate-prompt', async (req, res) => {
       });
     }
 
-    const briefExtraction = await extractBrief({
+    const { briefExtraction } = await buildNormalizedBrief({
       transcript: transcriptText,
       messages: messageHistory,
-      normalizeWithModel: (normalizerPrompt) =>
-        callGroq([
-          {
-            role: 'system',
-            content:
-              'You normalize conversation history into concise structured brief JSON for downstream prompt generation. Return JSON only.'
-          },
-          { role: 'user', content: normalizerPrompt }
-        ])
+      callModel: callGroq
     });
     const progress = inspectConversationStages(briefExtraction);
     const stageDiagnostics = buildStageDiagnostics(progress);
