@@ -115,6 +115,16 @@ body {
   justify-self: end;
 }
 
+.message-content {
+  display: grid;
+  justify-items: start;
+  gap: 0.32rem;
+}
+
+.message-row.user .message-content {
+  justify-items: end;
+}
+
 .avatar {
   width: 32px;
   height: 32px;
@@ -142,6 +152,35 @@ body {
 
 .bubble.user {
   background: #343541;
+}
+
+.copy-message-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  color: #9fa1af;
+  font-size: 0.76rem;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 6px;
+}
+
+.copy-message-button:hover {
+  color: #d4d7e1;
+  background: rgba(86, 88, 105, 0.28);
+}
+
+.copy-message-button:focus-visible {
+  outline: 2px solid #4f9cf9;
+  outline-offset: 1px;
+}
+
+.copy-message-button svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
 }
 
 .user-content {
